@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Seiri.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:local="using:Seiri.Views"
+    xmlns:models="using:Seiri.Core.Models"
+    xmlns:ui="using:CommunityToolkit.WinUI"
+    xmlns:vm="using:Seiri.ViewModels">
+
+    <ScrollViewer Padding="32,16,32,32">
+        <StackPanel MaxWidth="720" Spacing="8">
+            <TextBlock AutomationProperties.AutomationId="TxtSettingsTitle" Style="{StaticResource TitleTextBlockStyle}" Text="Settings" />
+            <TextBlock
+                Margin="0,0,0,16"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="Libraries stay in the folders you add. Thumbs and the SQLite index live in thumbnail/." />
+
+            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Directories" />
+            <ItemsRepeater ItemsSource="{x:Bind ViewModel.Libraries, Mode=OneWay}">
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="models:LibraryInfo">
+                        <Grid Margin="0,4" ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{x:Bind DisplayName}" />
+                                <TextBlock
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    FontSize="12"
+                                    Text="{x:Bind RootPath}" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Click="OnRescan" Tag="{x:Bind RootPath}" Content="Rescan" />
+                            <Button Grid.Column="2" Click="OnRemove" Tag="{x:Bind RootPath}" Content="Remove" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+            <Button AutomationProperties.AutomationId="BtnSettingsAddFolder" Margin="0,8,0,24" Click="OnAddFolder" Content="Add folder" />
+
+            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Personalization" />
+            <controls:SettingsCard
+                Description="Follow the system theme, or lock Light or Dark."
+                Header="Theme"
+                HeaderIcon="{ui:FontIcon Glyph=&#xE790;}">
+                <ComboBox
+                    x:Name="ThemeCombo"
+                    AutomationProperties.AutomationId="CmbTheme"
+                    MinWidth="160"
+                    SelectedIndex="{x:Bind ThemeIndex, Mode=TwoWay}">
+                    <ComboBoxItem Content="Use system" />
+                    <ComboBoxItem Content="Light" />
+                    <ComboBoxItem Content="Dark" />
+                </ComboBox>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard
+                Description="Size of masonry columns and river rows."
+                Header="Layout density"
+                HeaderIcon="{ui:FontIcon Glyph=&#xF0E2;}">
+                <ComboBox
+                    AutomationProperties.AutomationId="CmbDensity"
+                    MinWidth="160"
+                    SelectedIndex="{x:Bind DensityIndex, Mode=TwoWay}">
+                    <ComboBoxItem Content="Compact" />
+                    <ComboBoxItem Content="Comfortable" />
+                    <ComboBoxItem Content="Spacious" />
+                </ComboBox>
+            </controls:SettingsCard>
+
+            <TextBlock Margin="0,16,0,4" Style="{StaticResource SubtitleTextBlockStyle}" Text="Models" />
+            <TextBlock
+                Margin="0,0,0,12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                TextWrapping="Wrap"
+                Text="Local multi-label classifiers trained on Danbooru-style anime and illustration. They will mis-tag vacation photos. Nothing is uploaded. Weights are Apache 2.0." />
+
+            <ItemsRepeater ItemsSource="{x:Bind ViewModel.Models, Mode=OneWay}">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="8" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ModelCardViewModel">
+                        <Border
+                            Padding="16"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel Spacing="8">
+                                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Entry.DisplayName, Mode=OneWay}" />
+                                <TextBlock
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{x:Bind Entry.Description, Mode=OneWay}"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                    Text="{x:Bind StatusText, Mode=OneWay}" />
+                                <ProgressBar
+                                    Maximum="100"
+                                    ShowPaused="False"
+                                    Value="{x:Bind DownloadPercent, Mode=OneWay}"
+                                    Visibility="{x:Bind local:SettingsPage.BoolVis(IsDownloading), Mode=OneWay}" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ToggleSwitch
+                                        Header="Enable for tagging"
+                                        IsEnabled="{x:Bind IsInstalled, Mode=OneWay}"
+                                        IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
+                                        OffContent="Off"
+                                        OnContent="On" />
+                                    <Button
+                                        Grid.Column="1"
+                                        AutomationProperties.Name="{x:Bind DownloadName}"
+                                        Command="{x:Bind DownloadCommand}"
+                                        Content="Download"
+                                        Style="{StaticResource AccentButtonStyle}"
+                                        Visibility="{x:Bind local:SettingsPage.ShowDownload(IsInstalled, IsDownloading), Mode=OneWay}" />
+                                    <Button
+                                        Grid.Column="2"
+                                        AutomationProperties.Name="{x:Bind DeleteName}"
+                                        Command="{x:Bind DeleteCommand}"
+                                        Content="Delete"
+                                        Visibility="{x:Bind local:SettingsPage.ShowDelete(IsInstalled, IsDownloading), Mode=OneWay}" />
+                                </Grid>
+                                <ComboBox
+                                    Header="Threshold preset"
+                                    MinWidth="200"
+                                    SelectedIndex="{x:Bind PresetIndex, Mode=TwoWay}">
+                                    <ComboBoxItem Content="Balanced" />
+                                    <ComboBoxItem Content="Precise" />
+                                    <ComboBoxItem Content="Recall" />
+                                </ComboBox>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+
+            <controls:SettingsCard
+                Margin="0,12,0,0"
+                Description="Hard cap after thresholds. Rating is always kept."
+                Header="Max tags"
+                HeaderIcon="{ui:FontIcon Glyph=&#xE8EC;}">
+                <NumberBox
+                    AutomationProperties.AutomationId="NumMaxTags"
+                    Maximum="128"
+                    Minimum="1"
+                    SmallChange="1"
+                    SpinButtonPlacementMode="Inline"
+                    Value="{x:Bind MaxTags, Mode=TwoWay}" />
+            </controls:SettingsCard>
+
+            <controls:SettingsCard
+                Description="Windows ML / DirectML GPU, then CPU. EVA02 is painful on CPU."
+                Header="Execution provider"
+                HeaderIcon="{ui:FontIcon Glyph=&#xE950;}">
+                <ComboBox
+                    AutomationProperties.AutomationId="CmbExecution"
+                    MinWidth="160"
+                    SelectedIndex="{x:Bind ExecutionIndex, Mode=TwoWay}">
+                    <ComboBoxItem Content="Auto" />
+                    <ComboBoxItem Content="GPU" />
+                    <ComboBoxItem Content="CPU" />
+                </ComboBox>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard
+                Description="When several models are enabled, keep a tag if any model fires. Confidence is the maximum score."
+                Header="Multi-model merge"
+                HeaderIcon="{ui:FontIcon Glyph=&#xE8EC;}">
+                <TextBlock Text="Union, max score" />
+            </controls:SettingsCard>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

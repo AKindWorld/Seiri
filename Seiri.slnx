@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Seiri.App/Seiri.App.csproj" />
+  <Project Path="Seiri.Core/Seiri.Core.csproj" />
+  <Project Path="Seiri.Infrastructure/Seiri.Infrastructure.csproj" />
+  <Project Path="Seiri.Tests/Seiri.Tests.csproj" />
+</Solution>

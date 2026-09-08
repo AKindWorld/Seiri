@@ -1,0 +1,138 @@
+[
+  {
+    "status": "PASS",
+    "name": "Window title is Seiri"
+  },
+  {
+    "status": "PASS",
+    "name": "Add folders button"
+  },
+  {
+    "status": "PASS",
+    "name": "Settings button"
+  },
+  {
+    "status": "PASS",
+    "name": "Search box"
+  },
+  {
+    "status": "PASS",
+    "name": "Nav All"
+  },
+  {
+    "status": "PASS",
+    "name": "Nav Favorites"
+  },
+  {
+    "status": "PASS",
+    "name": "Nav Tagging"
+  },
+  {
+    "status": "PASS",
+    "name": "Gallery title"
+  },
+  {
+    "status": "PASS",
+    "name": "Subtitle has photos"
+  },
+  {
+    "status": "PASS",
+    "name": "Select button"
+  },
+  {
+    "status": "PASS",
+    "name": "Filter button"
+  },
+  {
+    "status": "PASS",
+    "name": "Layout button"
+  },
+  {
+    "status": "PASS",
+    "name": "Preview header"
+  },
+  {
+    "status": "PASS",
+    "name": "Click hutao tile"
+  },
+  {
+    "status": "PASS",
+    "name": "Preview shows add tag"
+  },
+  {
+    "status": "PASS",
+    "name": "Open in Photos button"
+  },
+  {
+    "status": "PASS",
+    "name": "Toggle favorite button"
+  },
+  {
+    "status": "PASS",
+    "name": "Add tag solo"
+  },
+  {
+    "status": "PASS",
+    "name": "Sidecar contains solo"
+  },
+  {
+    "status": "PASS",
+    "name": "Toggle favorite"
+  },
+  {
+    "status": "PASS",
+    "name": "Open Favorites"
+  },
+  {
+    "status": "PASS",
+    "name": "Favorites title"
+  },
+  {
+    "status": "PASS",
+    "name": "Open Tagging"
+  },
+  {
+    "status": "PASS",
+    "name": "Tagging title"
+  },
+  {
+    "status": "PASS",
+    "name": "Back to All"
+  },
+  {
+    "status": "PASS",
+    "name": "Search focus opens in-window suggestions, not PopupHost"
+  },
+  {
+    "status": "PASS",
+    "name": "Esc dismisses search suggestions"
+  },
+  {
+    "status": "PASS",
+    "name": "Click away dismisses search suggestions"
+  },
+  {
+    "status": "PASS",
+    "name": "Search tag 1girl"
+  },
+  {
+    "status": "PASS",
+    "name": "Search subtitle still photos"
+  },
+  {
+    "status": "PASS",
+    "name": "Open Settings"
+  },
+  {
+    "status": "PASS",
+    "name": "Settings title"
+  },
+  {
+    "status": "PASS",
+    "name": "Theme combo"
+  },
+  {
+    "status": "PASS",
+    "name": "Select mode toggle"
+  }
+]

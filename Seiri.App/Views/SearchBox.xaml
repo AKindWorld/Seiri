@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="Seiri.Views.SearchBox"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        AutoSuggestBox is used only for the search chrome (query icon, pill).
+        Its own Popup is never opened — suggestions render in MainWindow so they
+        can light-dismiss. TitleBar-hosted popups do not dismiss on click/Esc.
+    -->
+    <Grid>
+        <AutoSuggestBox
+            x:Name="QueryBox"
+            AutomationProperties.AutomationId="TxtSearch"
+            PlaceholderText="Search in Gallery"
+            QueryIcon="Find"
+            UpdateTextOnSelect="False"
+            Text="{x:Bind Gallery.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+            TextChanged="OnTextChanged"
+            QuerySubmitted="OnQuerySubmitted"
+            GotFocus="OnGotFocus"
+            LostFocus="OnLostFocus"
+            PreviewKeyDown="OnPreviewKeyDown" />
+        <TeachingTip
+            x:Name="SearchTip"
+            Title="Search by tag"
+            Subtitle="Type a tag name, or tag: for filters. Suggestions appear below the search box."
+            CloseButtonContent="Got it"
+            PreferredPlacement="Bottom"
+            Target="{x:Bind QueryBox}"
+            Closed="OnSearchTipClosed" />
+    </Grid>
+</UserControl>

@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="Seiri.Views.PreviewPane"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:local="using:Seiri.Views">
+
+    <Border
+        Background="{ThemeResource PreviewPaneBackgroundBrush}"
+        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+        BorderThickness="1,0,0,0"
+        Padding="16">
+        <ScrollViewer>
+            <StackPanel x:Name="PreviewStack" Spacing="16">
+                <TextBlock AutomationProperties.AutomationId="TxtPreviewHeader" Style="{StaticResource SubtitleTextBlockStyle}" Text="Preview" />
+
+                <Image
+                    x:Name="PreviewImage"
+                    HorizontalAlignment="Stretch"
+                    Stretch="Uniform"
+                    Source="{x:Bind local:PreviewPane.FullImage(Gallery.SelectedItem), Mode=OneWay}" />
+
+                <StackPanel Spacing="8" Visibility="{x:Bind local:PreviewPane.HasItem(Gallery.SelectedItem), Mode=OneWay}">
+                    <TextBlock
+                        Style="{StaticResource BodyStrongTextBlockStyle}"
+                        Text="{x:Bind local:PreviewPane.NameOf(Gallery.SelectedItem), Mode=OneWay}"
+                        TextWrapping="Wrap" />
+                    <HyperlinkButton
+                        Content="{x:Bind local:PreviewPane.PathOf(Gallery.SelectedItem), Mode=OneWay}"
+                        Click="OnRevealPath"
+                        FontSize="12"
+                        ToolTipService.ToolTip="{x:Bind local:PreviewPane.PathOf(Gallery.SelectedItem), Mode=OneWay}" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind local:PreviewPane.MetaOf(Gallery.SelectedItem), Mode=OneWay}"
+                        TextWrapping="Wrap" />
+                    <TextBlock
+                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                        Text="{x:Bind local:PreviewPane.ErrorOf(Gallery.SelectedItem), Mode=OneWay}"
+                        TextWrapping="Wrap"
+                        Visibility="{x:Bind local:PreviewPane.ErrorVis(Gallery.SelectedItem), Mode=OneWay}" />
+
+                    <Button
+                        AutomationProperties.AutomationId="BtnToggleFavorite"
+                        HorizontalAlignment="Stretch"
+                        Command="{x:Bind Gallery.ToggleFavoriteCommand}"
+                        Content="Toggle favorite" />
+                    <Button
+                        AutomationProperties.AutomationId="BtnCopyImage"
+                        HorizontalAlignment="Stretch"
+                        Command="{x:Bind Gallery.CopyImageCommand}"
+                        Content="Copy image" />
+                    <Button
+                        AutomationProperties.AutomationId="BtnTagCurrent"
+                        HorizontalAlignment="Stretch"
+                        Command="{x:Bind Gallery.TagCurrentCommand}"
+                        Content="Tag / retag"
+                        IsEnabled="{x:Bind Shell.CanTagCurrent, Mode=OneWay}" />
+
+                    <TextBlock Margin="0,8,0,0" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Tags" />
+                    <ItemsRepeater ItemsSource="{x:Bind Gallery.SelectedTags, Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <Border
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    CornerRadius="16"
+                                    Padding="2,2,2,2">
+                                    <StackPanel Orientation="Horizontal" Spacing="0">
+                                        <Button
+                                            MinWidth="0"
+                                            Padding="10,4,6,4"
+                                            HorizontalAlignment="Stretch"
+                                            AutomationProperties.Name="{x:Bind}"
+                                            Click="OnSearchTag"
+                                            Content="{x:Bind}"
+                                            Style="{StaticResource SubtleButtonStyle}"
+                                            Tag="{x:Bind}"
+                                            ToolTipService.ToolTip="Search this tag" />
+                                        <Button
+                                            Width="28"
+                                            Height="28"
+                                            Padding="0"
+                                            AutomationProperties.Name="Remove tag"
+                                            Click="OnRemoveTag"
+                                            Style="{StaticResource SubtleButtonStyle}"
+                                            Tag="{x:Bind}"
+                                            ToolTipService.ToolTip="Remove tag">
+                                            <FontIcon FontSize="10" Glyph="&#xE711;" />
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            AutomationProperties.AutomationId="TxtNewTag"
+                            PlaceholderText="Add a tag"
+                            Text="{x:Bind Gallery.NewTagText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            KeyDown="OnTagKeyDown" />
+                        <Button
+                            Grid.Column="1"
+                            AutomationProperties.AutomationId="BtnAddTag"
+                            Command="{x:Bind Gallery.AddTagCommand}"
+                            Content="Add" />
+                    </Grid>
+
+                    <Button
+                        AutomationProperties.AutomationId="BtnOpenPhotos"
+                        Margin="0,8,0,0"
+                        HorizontalAlignment="Stretch"
+                        Command="{x:Bind Gallery.OpenInPhotosCommand}"
+                        Content="Open in Photos" />
+                </StackPanel>
+
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Select an image to preview it."
+                    Visibility="{x:Bind local:PreviewPane.NoItem(Gallery.SelectedItem), Mode=OneWay}" />
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

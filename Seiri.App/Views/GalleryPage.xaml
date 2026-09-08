@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Seiri.Views.GalleryPage"
+    x:Name="Self"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:Seiri.Views"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:layouts="using:Seiri.Layouts"
+    xmlns:models="using:Seiri.Core.Models"
+    xmlns:vm="using:Seiri.ViewModels"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <DataTemplate x:Key="TileTemplate" x:DataType="models:MediaItem">
+            <local:MediaTile Item="{x:Bind Mode=OneWay}" />
+        </DataTemplate>
+    </Page.Resources>
+
+    <Grid Padding="24,16,24,8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <FontIcon FontSize="24" Glyph="&#xE91B;" />
+                    <TextBlock
+                        x:Name="PageTitleText"
+                        AutomationProperties.AutomationId="TxtPageTitle"
+                        Style="{StaticResource TitleTextBlockStyle}"
+                        Text="{x:Bind ViewModel.PageTitle, Mode=OneWay}" />
+                </StackPanel>
+                <TextBlock
+                    x:Name="SubtitleText"
+                    AutomationProperties.AutomationId="TxtSubtitle"
+                    Margin="40,4,0,0"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Text="{x:Bind Gallery.Subtitle, Mode=OneWay}" />
+            </StackPanel>
+
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="4"
+                VerticalAlignment="Top">
+                <ToggleButton
+                    AutomationProperties.AutomationId="BtnSelect"
+                    Command="{x:Bind Gallery.ToggleSelectModeCommand}"
+                    CornerRadius="4"
+                    IsChecked="{x:Bind Gallery.IsSelectMode, Mode=OneWay}"
+                    MinHeight="36"
+                    Padding="12,6">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE73A;" />
+                        <TextBlock Text="Select" />
+                    </StackPanel>
+                </ToggleButton>
+
+                <Button AutomationProperties.AutomationId="BtnMediaType" AutomationProperties.Name="Media type" Style="{StaticResource ChromeIconButtonStyle}">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="All" Text="Photos &amp; videos" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="Images" Text="Photos" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="Videos" Text="Videos" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xE714;" />
+                </Button>
+
+                <Button AutomationProperties.AutomationId="BtnSort" AutomationProperties.Name="Sort" Style="{StaticResource ChromeIconButtonStyle}">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateTaken" Text="Date taken" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateAdded" Text="Date added" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateModified" Text="Date modified" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="Name" Text="Name" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="Size" Text="Size" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="TagCount" Text="Tag count" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xE8CB;" />
+                </Button>
+
+                <Button x:Name="FilterButton" AutomationProperties.AutomationId="BtnFilter" AutomationProperties.Name="Filter" Style="{StaticResource ChromeIconButtonStyle}">
+                    <Button.Flyout>
+                        <Flyout>
+                            <StackPanel Width="320" Spacing="12">
+                                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Filters" />
+                                <TextBox
+                                    x:Name="FilterIncludeBox"
+                                    Header="Include tags"
+                                    PlaceholderText="1girl, long hair" />
+                                <TextBox
+                                    x:Name="FilterExcludeBox"
+                                    Header="Exclude tags"
+                                    PlaceholderText="monochrome" />
+                                <ComboBox
+                                    x:Name="FilterKindBox"
+                                    Header="Media type"
+                                    SelectedIndex="0">
+                                    <ComboBoxItem Content="Any" Tag="All" />
+                                    <ComboBoxItem Content="Photos" Tag="Images" />
+                                    <ComboBoxItem Content="Videos" Tag="Videos" />
+                                </ComboBox>
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <HyperlinkButton Click="OnClearFilters" Content="Clear Filters" />
+                                    <Button Grid.Column="1" Click="OnCancelFilters" Content="Cancel" />
+                                    <Button
+                                        Grid.Column="2"
+                                        Click="OnApplyFilters"
+                                        Content="Apply Filters"
+                                        Style="{StaticResource AccentButtonStyle}" />
+                                </Grid>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xE71C;" />
+                </Button>
+
+                <Button AutomationProperties.AutomationId="BtnLayout" AutomationProperties.Name="Layout" Style="{StaticResource ChromeIconButtonStyle}">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutGrid" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="Grid" Text="Grid" />
+                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutMasonry" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="Masonry" Text="Masonry" />
+                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutRiver" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="River" Text="River" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuDensitySmall" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Small" Text="Compact" />
+                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuDensityMedium" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Medium" Text="Comfortable" />
+                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuDensityLarge" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Large" Text="Spacious" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xF0E2;" />
+                </Button>
+
+                <Button
+                    AutomationProperties.AutomationId="BtnTagUntagged"
+                    Command="{x:Bind ViewModel.TagUntaggedCommand}"
+                    Content="{x:Bind ViewModel.TagUntaggedLabel, Mode=OneWay}"
+                    IsEnabled="{x:Bind ViewModel.CanTag, Mode=OneWay}"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Visibility="{x:Bind local:GalleryPage.BoolVis(Gallery.ShowTaggingFilters), Mode=OneWay}" />
+
+                <Button AutomationProperties.AutomationId="BtnMore" AutomationProperties.Name="More" Style="{StaticResource ChromeIconButtonStyle}">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SelectAllCommand}" Text="Select all" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.SelectNoneCommand}" Text="Select none" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Command="{x:Bind ViewModel.TogglePreviewCommand}" Text="Preview pane" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.OpenInPhotosCommand}" Text="Open in Photos" />
+                            <MenuFlyoutItem Command="{x:Bind Gallery.ToggleFavoriteCommand}" Text="Toggle favorite" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                    <FontIcon Glyph="&#xE712;" />
+                </Button>
+            </StackPanel>
+
+            <SelectorBar
+                Grid.Row="1"
+                Grid.ColumnSpan="2"
+                Margin="0,12,0,0"
+                SelectionChanged="OnTaggedFilterChanged"
+                Visibility="{x:Bind local:GalleryPage.BoolVis(Gallery.ShowTaggingFilters), Mode=OneWay}">
+                <SelectorBarItem IsSelected="True" Text="All" Tag="All" />
+                <SelectorBarItem Text="Tagged" Tag="Tagged" />
+                <SelectorBarItem Text="Untagged" Tag="Untagged" />
+                <SelectorBarItem Text="Failed" Tag="Failed" />
+            </SelectorBar>
+
+            <Grid
+                Grid.Row="2"
+                Grid.ColumnSpan="2"
+                Margin="0,12,0,0"
+                ColumnSpacing="8"
+                Visibility="{x:Bind local:GalleryPage.BoolVis(ViewModel.IsTagging), Mode=OneWay}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <ProgressBar
+                        AutomationProperties.AutomationId="PrgTagging"
+                        Maximum="100"
+                        Value="{x:Bind ViewModel.TaggingPercent, Mode=OneWay}" />
+                    <TextBlock
+                        AutomationProperties.AutomationId="TxtTaggingStatus"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.TaggingMessage, Mode=OneWay}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <Button
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="BtnCancelTagging"
+                    Command="{x:Bind ViewModel.CancelTaggingCommand}"
+                    Content="Cancel" />
+            </Grid>
+        </Grid>
+
+        <Grid x:Name="TileHost" Grid.Row="1" SizeChanged="OnTileHostSizeChanged">
+            <StackPanel
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="12"
+                Visibility="{x:Bind local:GalleryPage.EmptyVis(Gallery.IsEmpty, Gallery.HasLibraries), Mode=OneWay}">
+                <FontIcon FontSize="48" Glyph="&#xE8B7;" />
+                <TextBlock AutomationProperties.AutomationId="TxtEmptyTitle" Style="{StaticResource SubtitleTextBlockStyle}" Text="Add a folder to start" />
+                <TextBlock
+                    MaxWidth="420"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Seiri will scan images and videos, read sidecar .txt tags, and keep thumbs in a thumbnail folder inside that directory."
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+                <Button
+                    AutomationProperties.AutomationId="BtnAddFolderEmpty"
+                    Click="OnEmptyAddFolder"
+                    Content="Add folder"
+                    Style="{StaticResource AccentButtonStyle}" />
+                <HyperlinkButton
+                    AutomationProperties.AutomationId="BtnDemoFolder"
+                    Click="OnUseDemoFolder"
+                    Content="Use a demo folder" />
+            </StackPanel>
+
+            <StackPanel
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="12"
+                Visibility="{x:Bind local:GalleryPage.NoMatchVis(Gallery.IsEmpty, Gallery.HasLibraries), Mode=OneWay}">
+                <FontIcon FontSize="48" Glyph="&#xE721;" />
+                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="{x:Bind local:GalleryPage.EmptyMatchTitle(Gallery.ShowTaggingFilters, Gallery.TaggedFilter), Mode=OneWay}" />
+                <HyperlinkButton Command="{x:Bind Gallery.ClearSearchCommand}" Content="Clear search" />
+            </StackPanel>
+
+            <ScrollViewer Visibility="{x:Bind local:GalleryPage.GridGroupsVis(Gallery.Layout, Gallery.IsEmpty, Gallery.Sort), Mode=OneWay}">
+                <!-- grouped grid -->
+                <ItemsRepeater
+                    x:Name="GroupedRepeater"
+                    ElementPrepared="OnRepeaterPrepared"
+                    ItemsSource="{x:Bind Gallery.Groups, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="8" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GalleryGroup">
+                            <StackPanel>
+                                <TextBlock
+                                    Margin="0,12,0,8"
+                                    Style="{StaticResource SubtitleTextBlockStyle}"
+                                    Text="{x:Bind Header, Mode=OneWay}"
+                                    Visibility="{x:Bind local:GalleryPage.BoolVis(ShowHeader), Mode=OneWay}" />
+                                <ItemsRepeater ItemTemplate="{StaticResource TileTemplate}" ItemsSource="{x:Bind Items, Mode=OneWay}">
+                                    <ItemsRepeater.Layout>
+                                        <UniformGridLayout
+                                            MinColumnSpacing="8"
+                                            MinRowSpacing="8"
+                                            MinItemHeight="{Binding TileSize, ElementName=Self}"
+                                            MinItemWidth="{Binding TileSize, ElementName=Self}"
+                                            ItemsStretch="None" />
+                                    </ItemsRepeater.Layout>
+                                </ItemsRepeater>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </ScrollViewer>
+
+            <ScrollViewer Visibility="{x:Bind local:GalleryPage.GridFlatVis(Gallery.Layout, Gallery.IsEmpty, Gallery.Sort), Mode=OneWay}">
+                <ItemsRepeater ItemTemplate="{StaticResource TileTemplate}" ItemsSource="{x:Bind Gallery.Items, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <UniformGridLayout
+                            x:Name="FlatGridLayout"
+                            MinColumnSpacing="8"
+                            MinRowSpacing="8"
+                            MinItemHeight="{x:Bind TileSize, Mode=OneWay}"
+                            MinItemWidth="{x:Bind TileSize, Mode=OneWay}"
+                            ItemsStretch="None" />
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+            </ScrollViewer>
+
+            <ScrollViewer Visibility="{x:Bind local:GalleryPage.MasonryVis(Gallery.Layout, Gallery.IsEmpty), Mode=OneWay}">
+                <ItemsRepeater ItemTemplate="{StaticResource TileTemplate}" ItemsSource="{x:Bind Gallery.Items, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <controls:StaggeredLayout
+                            x:Name="MasonryLayout"
+                            ColumnSpacing="8"
+                            RowSpacing="8"
+                            DesiredColumnWidth="{x:Bind Gallery.MasonryColumnWidth, Mode=OneWay}"
+                            ItemsStretch="Fill" />
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+            </ScrollViewer>
+
+            <ScrollViewer Visibility="{x:Bind local:GalleryPage.RiverVis(Gallery.Layout, Gallery.IsEmpty), Mode=OneWay}">
+                <ItemsRepeater
+                    x:Name="RiverRepeater"
+                    ItemTemplate="{StaticResource TileTemplate}"
+                    ItemsSource="{x:Bind Gallery.Items, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <layouts:JustifiedLayout x:Name="RiverLayout" Spacing="8" />
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>

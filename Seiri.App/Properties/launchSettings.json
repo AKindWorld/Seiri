@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Seiri (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Seiri (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

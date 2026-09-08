@@ -1,0 +1,61 @@
+{
+  "models": [
+    {
+      "id": "wd-eva02-large-tagger-v3",
+      "displayName": "WD EVA02-Large v3",
+      "repo": "SmilingWolf/wd-eva02-large-tagger-v3",
+      "license": "Apache-2.0",
+      "description": "Best WD accuracy. Trained on Danbooru-style anime and illustration — it will mis-tag vacation photos. ~1.26 GB; a discrete GPU is more comfortable than CPU.",
+      "preprocess": "WdV3",
+      "sizeBytes": 1260000000,
+      "files": [
+        { "name": "model.onnx", "sha256": "9e768793060c7939b277ccb382783e8670e8a042d29d77aa736be0c8cc898bfc" },
+        { "name": "selected_tags.csv" }
+      ],
+      "balancedGeneral": 0.35,
+      "balancedCharacter": 0.85,
+      "preciseGeneral": 0.5296,
+      "preciseCharacter": 0.85,
+      "recallGeneral": 0.25,
+      "recallCharacter": 0.7
+    },
+    {
+      "id": "wd-swinv2-tagger-v3",
+      "displayName": "WD SwinV2 v3",
+      "repo": "SmilingWolf/wd-swinv2-tagger-v3",
+      "license": "Apache-2.0",
+      "description": "Faster WD default for weaker GPUs and CPU. Same Danbooru-style vocabulary as EVA02. ~450 MB.",
+      "preprocess": "WdV3",
+      "sizeBytes": 467460978,
+      "files": [
+        { "name": "model.onnx", "sha256": "e6774bff34d43bd49f75a47db4ef217dce701c9847b546523eb85ff6dbba1db1" },
+        { "name": "selected_tags.csv" }
+      ],
+      "balancedGeneral": 0.35,
+      "balancedCharacter": 0.85,
+      "preciseGeneral": 0.5296,
+      "preciseCharacter": 0.85,
+      "recallGeneral": 0.25,
+      "recallCharacter": 0.7
+    },
+    {
+      "id": "pixai-tagger-v0.9",
+      "displayName": "PixAI Tagger v0.9",
+      "repo": "deepghs/pixai-tagger-v0.9-onnx",
+      "license": "Apache-2.0",
+      "description": "Newer Danbooru (2025-01) with stronger character tags. ONNX export from DeepGHS; finetuned head on WD EVA02. ~1.27 GB.",
+      "preprocess": "PixaiV09",
+      "sizeBytes": 1271365854,
+      "files": [
+        { "name": "model.onnx", "sha256": "a8d479098b5e23f253543c93df42391736abbb77c21c2efd3a513b9cda7b3657" },
+        { "name": "selected_tags.csv" }
+      ],
+      "balancedGeneral": 0.3,
+      "balancedCharacter": 0.75,
+      "preciseGeneral": 0.5,
+      "preciseCharacter": 0.9,
+      "recallGeneral": 0.2,
+      "recallCharacter": 0.6
+    }
+  ]
+}
