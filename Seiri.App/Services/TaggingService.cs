@@ -56,6 +56,16 @@ public sealed class TaggingService : IAsyncDisposable
             taggers.Add((model, await GetOrCreateAsync(model, settings.ExecutionProvider, cancellationToken).ConfigureAwait(false)));
         }
 
+        var wantDml = ExecutionProviders.WantsDirectMl(settings.ExecutionProvider);
+        if (wantDml && taggers.Any(t => !t.Tagger.IsDirectMl))
+        {
+            AppLog.Write("GPU requested but at least one tagger is on CPU (DirectML failed to load).");
+        }
+        else if (wantDml)
+        {
+            AppLog.Write($"Tagging on DirectML with {taggers.Count} model(s).");
+        }
+
         var tagged = 0;
         var failed = 0;
         var skipped = 0;
@@ -93,7 +103,10 @@ public sealed class TaggingService : IAsyncDisposable
 
             try
             {
-                var image = await ImagePixelLoader.LoadAsync(item.FullPath, cancellationToken).ConfigureAwait(false);
+                AppLog.Heartbeat($"tag {done + 1}/{items.Count} {item.FileName}");
+                var image = await ImagePixelLoader.LoadScaledAsync(item.FullPath, 448, cancellationToken)
+                    .ConfigureAwait(false);
+                AppLog.Heartbeat($"decoded {item.FileName} {image.Width}x{image.Height}");
                 var results = new List<TagResult>();
                 foreach (var (entry, tagger) in taggers)
                 {
@@ -112,6 +125,7 @@ public sealed class TaggingService : IAsyncDisposable
                 await _libraries.ApplyAutoTagsAsync(item, [.. merged.AllScored()], merged.Rating?.Name, settings, cancellationToken)
                     .ConfigureAwait(false);
                 tagged++;
+                AppLog.Heartbeat($"tagged {item.FileName}");
             }
             catch (OperationCanceledException)
             {
@@ -120,7 +134,15 @@ public sealed class TaggingService : IAsyncDisposable
             catch (Exception ex)
             {
                 AppLog.Error($"tag {item.FullPath}", ex);
-                await _libraries.SetTagErrorAsync(item, ex.Message, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await _libraries.SetTagErrorAsync(item, ex.Message, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception markEx)
+                {
+                    AppLog.Error($"tag error mark {item.FileName}", markEx);
+                }
+
                 failed++;
             }
 
@@ -159,7 +181,13 @@ public sealed class TaggingService : IAsyncDisposable
         {
             if (_loaded.TryGetValue(entry.Id, out var existing))
             {
-                return existing;
+                if (string.Equals(existing.RequestedProvider, provider, StringComparison.OrdinalIgnoreCase))
+                {
+                    return existing;
+                }
+
+                await existing.DisposeAsync().ConfigureAwait(false);
+                _loaded.Remove(entry.Id);
             }
 
             var tagger = new OnnxTagger(entry, _home, provider);

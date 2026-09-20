@@ -11,8 +11,8 @@ public static class WdV3Preprocess
             throw new ArgumentOutOfRangeException(nameof(width), "Image size must be positive.");
         }
 
-        var rgb = ImageResize.FlattenBgraToRgb(bgra, width, height);
-        var padded = ImageResize.PadToSquare(rgb, width, height, 255, out var square);
+        var limited = ImageResize.FlattenAndLimit(bgra, width, height);
+        var padded = ImageResize.PadToSquare(limited.Rgb, limited.Width, limited.Height, 255, out var square);
         var resized = ImageResize.Bicubic(padded, square, square, Size, Size);
         var tensor = new float[Size * Size * 3];
         for (var i = 0; i < Size * Size; i++)

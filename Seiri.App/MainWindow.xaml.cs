@@ -1,15 +1,18 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Seiri.Core;
 using Seiri.Core.Models;
 using Seiri.ViewModels;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
 using Windows.System;
+using Windows.UI.Core;
 using WinRT.Interop;
 
 namespace Seiri;
@@ -33,11 +36,8 @@ public sealed partial class MainWindow : Window
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
         AddAccelerators();
 
-        var hwnd = WindowNative.GetWindowHandle(this);
-        var scale = GetDpiForWindow(hwnd) / 96.0;
-        var width = (int)(ViewModel.Settings.WindowWidth * scale);
-        var height = (int)(ViewModel.Settings.WindowHeight * scale);
-        AppWindow.Resize(new SizeInt32(width, height));
+        RestorePlacement();
+        AppWindow.Changed += OnAppWindowChanged;
 
         RootGrid.SizeChanged += (_, _) => PositionSuggestPanel();
         GallerySearch.SizeChanged += (_, _) => PositionSuggestPanel();
@@ -90,8 +90,8 @@ public sealed partial class MainWindow : Window
     public static Visibility NotBoolToVis(bool value) =>
         value ? Visibility.Collapsed : Visibility.Visible;
 
-    public static Visibility PreviewVis(bool previewOpen, bool settingsOpen) =>
-        previewOpen && !settingsOpen ? Visibility.Visible : Visibility.Collapsed;
+    public static Visibility PreviewVis(bool previewOpen, bool settingsOpen, bool tagsOpen) =>
+        previewOpen && !settingsOpen && !tagsOpen ? Visibility.Visible : Visibility.Collapsed;
 
     public static bool HasText(string? value) => !string.IsNullOrEmpty(value);
 
@@ -102,6 +102,7 @@ public sealed partial class MainWindow : Window
             0 => RailSection.All,
             1 => RailSection.Favorites,
             2 => RailSection.Tagging,
+            3 => RailSection.Tags,
             _ => (RailSection)(-1)
         };
 
@@ -118,7 +119,7 @@ public sealed partial class MainWindow : Window
     public static HorizontalAlignment RailAlign(bool expanded) =>
         expanded ? HorizontalAlignment.Left : HorizontalAlignment.Center;
 
-    private void OnPaneToggleRequested(TitleBar sender, object args)
+    private void OnRailToggleClick(object sender, RoutedEventArgs e)
     {
         ViewModel.Gallery.CloseSuggestions();
         ViewModel.ToggleRailCommand.Execute(null);
@@ -154,7 +155,14 @@ public sealed partial class MainWindow : Window
         }
 
         GallerySearch.CancelPendingDismiss();
-        await ViewModel.Gallery.ApplySuggestionAsync(suggestion);
+        try
+        {
+            await ViewModel.Gallery.ApplySuggestionAsync(suggestion);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("search suggestion", ex);
+        }
         if (suggestion.Kind == "prefix")
         {
             GallerySearch.FocusQuery();
@@ -166,6 +174,8 @@ public sealed partial class MainWindow : Window
     private void OnNavFavorites(object sender, RoutedEventArgs e) => ViewModel.Navigate(RailSection.Favorites, null);
 
     private void OnNavTagging(object sender, RoutedEventArgs e) => ViewModel.Navigate(RailSection.Tagging, null);
+
+    private void OnNavTags(object sender, RoutedEventArgs e) => ViewModel.Navigate(RailSection.Tags, null);
 
     private void OnLibraryButtonClick(object sender, RoutedEventArgs e)
     {
@@ -199,28 +209,77 @@ public sealed partial class MainWindow : Window
 
     private void AddAccelerators()
     {
-        AddAccel(VirtualKey.F, VirtualKeyModifiers.Control, () => GallerySearch.FocusQuery());
-        AddAccel(VirtualKey.F5, VirtualKeyModifiers.None, () => _ = ViewModel.RescanAsync());
-        AddAccel(VirtualKey.A, VirtualKeyModifiers.Control, () => ViewModel.Gallery.SelectAllCommand.Execute(null));
-        AddAccel(VirtualKey.D, VirtualKeyModifiers.Control, () => ViewModel.Gallery.ToggleFavoriteCommand.Execute(null));
-        AddAccel(VirtualKey.I, VirtualKeyModifiers.Control, () => ViewModel.TogglePreviewCommand.Execute(null));
-        AddAccel((VirtualKey)0xBC, VirtualKeyModifiers.Control, () => ViewModel.OpenSettingsCommand.Execute(null));
-        RootGrid.KeyDown += OnRootKeyDown;
+        RootGrid.PreviewKeyDown += OnRootPreviewKeyDown;
     }
 
-    private void AddAccel(VirtualKey key, VirtualKeyModifiers modifiers, Action action)
+    private static bool KeyIsDown(VirtualKey key) =>
+        InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(CoreVirtualKeyStates.Down);
+
+    private bool FocusedInTextInput()
     {
-        var accel = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
-        accel.Invoked += (_, args) =>
+        if (FocusManager.GetFocusedElement(RootGrid.XamlRoot) is not DependencyObject focused)
         {
-            action();
-            args.Handled = true;
-        };
-        RootGrid.KeyboardAccelerators.Add(accel);
+            return false;
+        }
+
+        for (DependencyObject? node = focused; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is TextBox or AutoSuggestBox)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    private async void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
+    private async void OnRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        var ctrl = KeyIsDown(VirtualKey.Control);
+        var typing = FocusedInTextInput();
+
+        if (ctrl && e.Key == VirtualKey.F)
+        {
+            GallerySearch.FocusQuery();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.F5)
+        {
+            AppLog.Run(() => ViewModel.RescanAsync(), "F5 rescan");
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && e.Key == VirtualKey.I)
+        {
+            ViewModel.TogglePreviewCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && e.Key == (VirtualKey)0xBC)
+        {
+            ViewModel.OpenSettingsCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && e.Key == VirtualKey.A && !typing)
+        {
+            ViewModel.Gallery.SelectAllCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (ctrl && e.Key == VirtualKey.D && !typing)
+        {
+            ViewModel.Gallery.ToggleFavoriteCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != VirtualKey.Escape)
         {
             return;
@@ -254,12 +313,73 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void RestorePlacement()
+    {
+        var settings = ViewModel.Settings;
+        if (settings.WindowFullScreen)
+        {
+            AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            return;
+        }
+
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var scale = Math.Max(1.0, GetDpiForWindow(hwnd) / 96.0);
+        var width = Math.Max(640, (int)(settings.WindowWidth * scale));
+        var height = Math.Max(480, (int)(settings.WindowHeight * scale));
+        var hasPos = settings.WindowX != int.MinValue && settings.WindowY != int.MinValue;
+        var point = hasPos
+            ? new PointInt32(settings.WindowX, settings.WindowY)
+            : AppWindow.Position;
+        var display = DisplayArea.GetFromPoint(point, DisplayAreaFallback.Primary);
+        var work = display.WorkArea;
+        width = Math.Min(width, work.Width);
+        height = Math.Min(height, work.Height);
+        if (hasPos)
+        {
+            var x = Math.Clamp(settings.WindowX, work.X, work.X + Math.Max(0, work.Width - 80));
+            var y = Math.Clamp(settings.WindowY, work.Y, work.Y + Math.Max(0, work.Height - 80));
+            AppWindow.Move(new PointInt32(x, y));
+        }
+
+        AppWindow.Resize(new SizeInt32(width, height));
+        if (settings.WindowMaximized && AppWindow.Presenter is OverlappedPresenter overlapped)
+        {
+            overlapped.Maximize();
+        }
+    }
+
+    private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (!args.DidPositionChange && !args.DidSizeChange && !args.DidPresenterChange)
+        {
+            return;
+        }
+
+        CapturePlacement();
+    }
+
+    private void CapturePlacement()
+    {
+        var settings = ViewModel.Settings;
+        settings.WindowFullScreen = AppWindow.Presenter?.Kind == AppWindowPresenterKind.FullScreen;
+        var overlapped = AppWindow.Presenter as OverlappedPresenter;
+        settings.WindowMaximized = overlapped?.State == OverlappedPresenterState.Maximized;
+        if (settings.WindowFullScreen || settings.WindowMaximized)
+        {
+            return;
+        }
+
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var scale = Math.Max(1.0, GetDpiForWindow(hwnd) / 96.0);
+        settings.WindowX = AppWindow.Position.X;
+        settings.WindowY = AppWindow.Position.Y;
+        settings.WindowWidth = Math.Max(640, (int)Math.Round(AppWindow.Size.Width / scale));
+        settings.WindowHeight = Math.Max(480, (int)Math.Round(AppWindow.Size.Height / scale));
+    }
+
     private void OnClosed(object sender, WindowEventArgs args)
     {
-        var hwnd = WindowNative.GetWindowHandle(this);
-        var scale = GetDpiForWindow(hwnd) / 96.0;
-        ViewModel.Settings.WindowWidth = (int)(AppWindow.Size.Width / scale);
-        ViewModel.Settings.WindowHeight = (int)(AppWindow.Size.Height / scale);
+        CapturePlacement();
         ViewModel.PersistSettings();
     }
 }

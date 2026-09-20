@@ -3,7 +3,10 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Seiri.Core;
 using Seiri.Core.Models;
+using Seiri.Services;
 using Windows.Foundation;
 using Windows.UI;
 
@@ -12,12 +15,15 @@ namespace Seiri.Views;
 public sealed partial class MediaTile : UserControl
 {
     private MediaItem? _item;
+    private int _loadSerial;
 
     public MediaTile()
     {
         InitializeComponent();
         PointerPressed += OnPressed;
         DoubleTapped += OnDoubleTapped;
+        PointerEntered += OnEntered;
+        PointerExited += OnExited;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -32,30 +38,93 @@ public sealed partial class MediaTile : UserControl
         }
     }
 
+    public void Unload()
+    {
+        _loadSerial++;
+        ThumbImage.Source = null;
+    }
+
+    private const long HoverPlayMaxBytes = 20L * 1024 * 1024;
+
+    private bool CanHoverPlay(MediaItem? item)
+    {
+        if (item is null || item.Kind != MediaKind.Image || item.ByteSize > HoverPlayMaxBytes)
+        {
+            return false;
+        }
+
+        var ext = item.Ext;
+        return ext.Equals("gif", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".gif", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals("webp", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".webp", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async void OnEntered(object sender, PointerRoutedEventArgs e)
+    {
+        var item = Item;
+        if (GpuWork.YieldGpuToOnnx || !CanHoverPlay(item) || item is null || !File.Exists(item.FullPath))
+        {
+            return;
+        }
+
+        var serial = ++_loadSerial;
+        try
+        {
+            var image = new BitmapImage
+            {
+                AutoPlay = true,
+                UriSource = new Uri(item.FullPath)
+            };
+            if (serial != _loadSerial || !ReferenceEquals(Item, item))
+            {
+                return;
+            }
+
+            ThumbImage.Source = image;
+        }
+        catch
+        {
+            if (serial == _loadSerial)
+            {
+                await LoadThumbAsync();
+            }
+        }
+    }
+
+    private void OnExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!CanHoverPlay(Item))
+        {
+            return;
+        }
+
+        _ = LoadThumbAsync();
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         App.Shell.Gallery.PropertyChanged += OnGalleryChanged;
         ApplyItem();
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) =>
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
         App.Shell.Gallery.PropertyChanged -= OnGalleryChanged;
+        Unload();
+    }
 
     private void OnGalleryChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ViewModels.GalleryViewModel.Layout)
-            or nameof(ViewModels.GalleryViewModel.Density)
-            or nameof(ViewModels.GalleryViewModel.TileSize)
-            or nameof(ViewModels.GalleryViewModel.MasonryColumnWidth)
-            or nameof(ViewModels.GalleryViewModel.RiverRowHeight))
-        {
-            InvalidateMeasure();
-        }
-
         if (e.PropertyName is nameof(ViewModels.GalleryViewModel.IsSelectMode)
             or nameof(ViewModels.GalleryViewModel.SelectionVersion))
         {
             ApplySelection();
+        }
+
+        if (e.PropertyName is nameof(ViewModels.GalleryViewModel.ImageEpoch))
+        {
+            ApplyItem();
         }
     }
 
@@ -67,9 +136,56 @@ public sealed partial class MediaTile : UserControl
         TagBadge.Value = item?.TagCount ?? 0;
         TagBadge.Visibility = item is { TagCount: > 0 } ? Visibility.Visible : Visibility.Collapsed;
         VideoMark.Visibility = item?.Kind == MediaKind.Video ? Visibility.Visible : Visibility.Collapsed;
-        ThumbImage.Source = GalleryPage.Thumb(item?.ThumbFullPath ?? item?.FullPath);
         ApplySelection();
-        InvalidateMeasure();
+        _ = LoadThumbAsync();
+    }
+
+    private async Task LoadThumbAsync()
+    {
+        var serial = ++_loadSerial;
+        var item = Item;
+        if (item is null)
+        {
+            ThumbImage.Source = null;
+            return;
+        }
+
+        try
+        {
+            await App.Shell.Thumbs.EnsureAsync(item);
+            if (serial != _loadSerial || !ReferenceEquals(Item, item))
+            {
+                return;
+            }
+
+            var path = item.ThumbFullPath;
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            var source = await TileImageFactory.CreateAsync(
+                path,
+                DecodeWidth(),
+                App.Shell.UseHardwareAcceleration && !GpuWork.YieldGpuToOnnx);
+            if (serial != _loadSerial || !ReferenceEquals(Item, item))
+            {
+                return;
+            }
+
+            ThumbImage.Source = source;
+        }
+        catch
+        {
+            // Placeholder stays visible.
+        }
+    }
+
+    private int DecodeWidth()
+    {
+        var scale = XamlRoot?.RasterizationScale ?? 1;
+        var css = ActualWidth > 1 ? ActualWidth : App.Shell.Gallery.TileSize;
+        return Math.Clamp((int)Math.Ceiling(css * scale), 64, 512);
     }
 
     private void ApplySelection()
@@ -108,62 +224,9 @@ public sealed partial class MediaTile : UserControl
 
     private Size DesiredTileSize(Size available)
     {
-        var gallery = App.Shell.Gallery;
-        var aspect = Aspect();
-        return gallery.Layout switch
-        {
-            GalleryLayoutMode.Masonry => MasonrySize(available, gallery.MasonryColumnWidth, aspect),
-            GalleryLayoutMode.River => RiverSize(available, gallery.RiverRowHeight, aspect),
-            _ => GridSize(available, gallery.TileSize)
-        };
-    }
-
-    private static Size GridSize(Size available, double tile)
-    {
-        var w = Finite(available.Width, tile);
-        var h = Finite(available.Height, tile);
-        var side = Math.Min(w, h);
-        if (side <= 0)
-        {
-            side = tile;
-        }
-
-        return new Size(side, side);
-    }
-
-    private static Size MasonrySize(Size available, double column, double aspect)
-    {
-        var width = Finite(available.Width, column);
-        if (width <= 0)
-        {
-            width = column;
-        }
-
-        return new Size(width, Math.Max(40, width * aspect));
-    }
-
-    private static Size RiverSize(Size available, double rowHeight, double aspect)
-    {
-        var height = Finite(available.Height, rowHeight);
-        if (height <= 0)
-        {
-            height = rowHeight;
-        }
-
-        var width = aspect <= 0 ? height : height / aspect;
-        return new Size(Math.Max(40, width), height);
-    }
-
-    private double Aspect()
-    {
-        var w = Item?.Width ?? 0;
-        var h = Item?.Height ?? 0;
-        if (w <= 0 || h <= 0)
-        {
-            return 1;
-        }
-
-        return h / (double)w;
+        var w = Finite(available.Width, App.Shell.Gallery.TileSize);
+        var h = Finite(available.Height, w);
+        return new Size(w, h);
     }
 
     private static double Finite(double value, double fallback) =>
@@ -173,7 +236,14 @@ public sealed partial class MediaTile : UserControl
     {
         if (Item is { } item)
         {
-            await App.Shell.Gallery.SelectCommand.ExecuteAsync(item);
+            try
+            {
+                await App.Shell.Gallery.SelectCommand.ExecuteAsync(item);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("tile select", ex);
+            }
         }
     }
 
@@ -181,7 +251,14 @@ public sealed partial class MediaTile : UserControl
     {
         if (Item is { } item)
         {
-            await App.Shell.Gallery.OpenInPhotosCommand.ExecuteAsync(item);
+            try
+            {
+                await App.Shell.Gallery.OpenInPhotosCommand.ExecuteAsync(item);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("tile open", ex);
+            }
         }
     }
 }

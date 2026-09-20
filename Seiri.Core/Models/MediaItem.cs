@@ -16,7 +16,7 @@ public sealed class MediaItem
     public DateTimeOffset MtimeUtc { get; init; }
     public DateTimeOffset? TakenAt { get; init; }
     public DateTimeOffset AddedAt { get; init; }
-    public bool IsFavorite { get; init; }
+    public bool IsFavorite { get; set; }
     public bool IsMissing { get; init; }
     public string? SidecarRel { get; init; }
     public int TagCount { get; init; }
@@ -24,6 +24,7 @@ public sealed class MediaItem
     public string? ThumbRel { get; init; }
     public string? Rating { get; init; }
     public string? TagError { get; init; }
+    public string? ColorBucket { get; init; }
 
     public string FullPath => GeneratedLayout.ToFullPath(LibraryRoot, RelPath);
 

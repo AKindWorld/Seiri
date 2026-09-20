@@ -14,12 +14,14 @@
     <!-- Product choice: portable full-trust gallery. Not a launch workaround. -->
     <WindowsPackageType>None</WindowsPackageType>
     <EnableMsixTooling>false</EnableMsixTooling>
+    <!-- Bundle WASDK next to the exe so a copied folder runs without a machine-wide runtime. -->
+    <WindowsAppSDKSelfContained Condition="'$(Configuration)' == 'Release'">true</WindowsAppSDKSelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\**\*.*" />
+    <Content Include="Assets\**\*.*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,6 +37,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.6.1" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
@@ -46,4 +49,23 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
+
+  <!--
+    dotnet publish does not copy WinUI PRI/XBF (they are CopyToOutputDirectory only).
+    Without them, Seiri.exe is WinExe and InitializeComponent fails with no window.
+  -->
+  <Target Name="CopyWinUIPriAndXbfToPublishDir" AfterTargets="Publish">
+    <PropertyGroup>
+      <_WinUIOut>$([MSBuild]::EnsureTrailingSlash($([System.IO.Path]::GetFullPath('$(OutputPath)'))))</_WinUIOut>
+      <_WinUIPub>$([MSBuild]::EnsureTrailingSlash($([System.IO.Path]::GetFullPath('$(PublishDir)'))))</_WinUIPub>
+    </PropertyGroup>
+    <ItemGroup>
+      <_WinUIPri Include="$(_WinUIOut)$(AssemblyName).pri" />
+      <_WinUIXbf Include="$(_WinUIOut)**\*.xbf" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WinUIPri)" DestinationFolder="$(_WinUIPub)" SkipUnchangedFiles="true" Condition="'@(_WinUIPri)' != ''" />
+    <Copy SourceFiles="@(_WinUIXbf)" DestinationFiles="@(_WinUIXbf->'$(_WinUIPub)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(_WinUIXbf)' != ''" />
+    <Error Text="Publish is missing $(_WinUIPub)$(AssemblyName).pri — Seiri.exe would exit silently." Condition="!Exists('$(_WinUIPub)$(AssemblyName).pri')" />
+    <Error Text="Publish is missing $(_WinUIPub)App.xbf — Seiri.exe would exit silently." Condition="!Exists('$(_WinUIPub)App.xbf')" />
+  </Target>
 </Project>

@@ -24,9 +24,8 @@
             x:Name="AppTitleBar"
             Title="Seiri"
             IsBackButtonVisible="{x:Bind ViewModel.IsSettingsOpen, Mode=OneWay}"
-            IsPaneToggleButtonVisible="True"
-            BackRequested="OnBackRequested"
-            PaneToggleRequested="OnPaneToggleRequested">
+            IsPaneToggleButtonVisible="False"
+            BackRequested="OnBackRequested">
             <TitleBar.Resources>
                 <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
             </TitleBar.Resources>
@@ -79,6 +78,26 @@
                 Padding="4,4">
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="2">
+                        <Button
+                            AutomationProperties.AutomationId="BtnRailToggle"
+                            AutomationProperties.Name="Navigation"
+                            Width="40"
+                            MinWidth="40"
+                            HorizontalAlignment="Left"
+                            Style="{StaticResource RailButtonStyle}"
+                            Click="OnRailToggleClick"
+                            ToolTipService.ToolTip="Navigation">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="40" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Glyph="&#xE700;" />
+                            </Grid>
+                        </Button>
                         <Button
                             AutomationProperties.AutomationId="NavAll"
                             Style="{StaticResource RailButtonStyle}"
@@ -166,6 +185,35 @@
                                     Visibility="{x:Bind local:MainWindow.BoolToVis(ViewModel.RailExpanded), Mode=OneWay}" />
                             </Grid>
                         </Button>
+                        <Button
+                            AutomationProperties.AutomationId="NavTags"
+                            Style="{StaticResource RailButtonStyle}"
+                            Click="OnNavTags"
+                            ToolTipService.ToolTip="Tags">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="40" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border
+                                    Width="36"
+                                    Height="36"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Background="{x:Bind local:MainWindow.NavPill(ViewModel.CurrentSection, 3), Mode=OneWay}"
+                                    CornerRadius="4" />
+                                <FontIcon
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Glyph="&#xE8A1;" />
+                                <TextBlock
+                                    Grid.Column="1"
+                                    Margin="0,0,12,0"
+                                    VerticalAlignment="Center"
+                                    Text="Tags"
+                                    Visibility="{x:Bind local:MainWindow.BoolToVis(ViewModel.RailExpanded), Mode=OneWay}" />
+                            </Grid>
+                        </Button>
 
                         <MenuFlyoutSeparator Margin="8,8" />
 
@@ -207,7 +255,11 @@
             <views:GalleryPage
                 x:Name="GalleryHost"
                 Grid.Column="1"
-                Visibility="{x:Bind local:MainWindow.NotBoolToVis(ViewModel.IsSettingsOpen), Mode=OneWay}" />
+                Visibility="{x:Bind local:MainWindow.BoolToVis(ViewModel.ShowGallery), Mode=OneWay}" />
+
+            <views:TagsPage
+                Grid.Column="1"
+                Visibility="{x:Bind local:MainWindow.BoolToVis(ViewModel.ShowTagsPage), Mode=OneWay}" />
 
             <views:SettingsPage
                 x:Name="SettingsHost"
@@ -218,7 +270,8 @@
                 x:Name="PreviewHost"
                 Grid.Column="2"
                 Width="320"
-                Visibility="{x:Bind local:MainWindow.PreviewVis(ViewModel.IsPreviewOpen, ViewModel.IsSettingsOpen), Mode=OneWay}" />
+                VerticalAlignment="Stretch"
+                Visibility="{x:Bind local:MainWindow.PreviewVis(ViewModel.IsPreviewOpen, ViewModel.IsSettingsOpen, ViewModel.ShowTagsPage), Mode=OneWay}" />
         </Grid>
 
         <Grid

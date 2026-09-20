@@ -21,16 +21,28 @@ public sealed class LibraryWatcher : IDisposable
                 return;
             }
 
-            var watcher = new FileSystemWatcher(root)
+            FileSystemWatcher watcher;
+            try
             {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
-                EnableRaisingEvents = true
-            };
+                watcher = new FileSystemWatcher(root)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    InternalBufferSize = 64 * 1024,
+                    EnableRaisingEvents = true
+                };
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error($"watch {root}", ex);
+                return;
+            }
+
             watcher.Changed += (_, e) => OnEvent(root, e.FullPath);
             watcher.Created += (_, e) => OnEvent(root, e.FullPath);
             watcher.Deleted += (_, e) => OnEvent(root, e.FullPath);
             watcher.Renamed += (_, e) => OnEvent(root, e.FullPath);
+            watcher.Error += (_, e) => AppLog.Error($"watcher {root}", e.GetException());
             _watchers[root] = watcher;
         }
     }
@@ -72,7 +84,19 @@ public sealed class LibraryWatcher : IDisposable
 
     private void OnEvent(string root, string fullPath)
     {
-        if (Volatile.Read(ref _pause) > 0)
+        try
+        {
+            OnEventCore(root, fullPath);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"watcher event {root}", ex);
+        }
+    }
+
+    private void OnEventCore(string root, string fullPath)
+    {
+        if (Volatile.Read(ref _pause) > 0 || string.IsNullOrEmpty(fullPath))
         {
             return;
         }
@@ -102,18 +126,12 @@ public sealed class LibraryWatcher : IDisposable
             _debounce[root] = cts;
         }
 
-        _ = DebounceAsync(root, cts);
+        AppLog.Run(() => DebounceAsync(root, cts), $"watcher debounce {root}");
     }
 
     private async Task DebounceAsync(string root, CancellationTokenSource cts)
     {
-        try
-        {
-            await Task.Delay(400, cts.Token).ConfigureAwait(false);
-            Changed?.Invoke(root);
-        }
-        catch (TaskCanceledException)
-        {
-        }
+        await Task.Delay(400, cts.Token).ConfigureAwait(false);
+        Changed?.Invoke(root);
     }
 }

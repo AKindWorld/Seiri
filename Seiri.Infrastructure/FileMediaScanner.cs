@@ -15,34 +15,56 @@ public sealed class FileMediaScanner : IMediaScanner
         var root = LibraryNesting.Normalize(libraryRoot);
         var now = DateTimeOffset.UtcNow;
 
-        foreach (var file in EnumerateMedia(root, generatedFolderName))
+        IEnumerable<FileInfo> files;
+        try
+        {
+            files = EnumerateMedia(root, generatedFolderName);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"enumerate {root}", ex);
+            yield break;
+        }
+
+        foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            MediaKind? kind = MediaExtensions.Classify(file.Extension);
-            if (kind is null)
+            MediaItem? item = null;
+            try
             {
-                continue;
+                MediaKind? kind = MediaExtensions.Classify(file.Extension);
+                if (kind is null)
+                {
+                    continue;
+                }
+
+                var rel = GeneratedLayout.ToRelativeUnix(root, file.FullName);
+                var size = kind == MediaKind.Image ? ImageDimensions.TryRead(file.FullName) : null;
+                item = new MediaItem
+                {
+                    LibraryRoot = root,
+                    RelPath = rel,
+                    FileName = file.Name,
+                    Ext = file.Extension.TrimStart('.').ToLowerInvariant(),
+                    Kind = kind.Value,
+                    ByteSize = file.Length,
+                    Width = size?.Width,
+                    Height = size?.Height,
+                    MtimeUtc = file.LastWriteTimeUtc,
+                    AddedAt = now,
+                    SidecarRel = FindSidecar(root, file),
+                    ThumbRel = GeneratedLayout.ThumbRelativeUnix(rel)
+                };
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error($"scan {file.FullName}", ex);
             }
 
-            var rel = GeneratedLayout.ToRelativeUnix(root, file.FullName);
-            var size = kind == MediaKind.Image ? ImageDimensions.TryRead(file.FullName) : null;
-
-            yield return new MediaItem
+            if (item is not null)
             {
-                LibraryRoot = root,
-                RelPath = rel,
-                FileName = file.Name,
-                Ext = file.Extension.TrimStart('.').ToLowerInvariant(),
-                Kind = kind.Value,
-                ByteSize = file.Length,
-                Width = size?.Width,
-                Height = size?.Height,
-                MtimeUtc = file.LastWriteTimeUtc,
-                AddedAt = now,
-                SidecarRel = FindSidecar(root, file),
-                ThumbRel = GeneratedLayout.ThumbRelativeUnix(rel)
-            };
+                yield return item;
+            }
         }
 
         await Task.CompletedTask.ConfigureAwait(false);

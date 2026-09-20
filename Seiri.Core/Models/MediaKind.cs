@@ -37,6 +37,26 @@ public enum SortDir
     Asc
 }
 
+public enum DateField
+{
+    Taken,
+    Added,
+    Modified
+}
+
+public enum GroupKey
+{
+    None,
+    DateTaken,
+    DateAdded,
+    DateModified,
+    Name,
+    Type,
+    Size,
+    Tags,
+    Dimensions
+}
+
 public enum MediaKindFilter
 {
     All,
@@ -57,6 +77,7 @@ public enum RailSection
     All,
     Favorites,
     Tagging,
+    Tags,
     Directory,
     Settings
 }

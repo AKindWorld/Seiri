@@ -76,6 +76,17 @@ public static class ModelCatalog
             PreciseCharacter = 0.90f,
             RecallGeneral = 0.20f,
             RecallCharacter = 0.60f
+        },
+        new()
+        {
+            Id = "clip-vit-b32-openai",
+            DisplayName = "CLIP ViT-B/32 (OpenAI)",
+            Repo = "Xenova/clip-vit-base-patch32",
+            License = "MIT",
+            Description = "Similar-images encoder. OpenAI CLIP trained on web photos and a lot of illustration, so it works for both real life and anime. Quantized vision tower ~90 MB. Used only by Find similar — not a tagger.",
+            Preprocess = "Clip224",
+            SizeBytes = 90_000_000,
+            Files = [new ModelFile { Name = "onnx/vision_model_quantized.onnx" }]
         }
     ];
 
@@ -95,7 +106,7 @@ public static class ModelCatalog
                 return file.Models;
             }
         }
-        catch (JsonException)
+        catch (Exception)
         {
         }
 

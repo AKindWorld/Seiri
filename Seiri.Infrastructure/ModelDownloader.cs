@@ -1,7 +1,9 @@
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using Seiri.Core;
 using Seiri.Core.Contracts;
 using Seiri.Core.Models;
+using Seiri.Core.Tagging;
 
 namespace Seiri.Infrastructure;
 
@@ -61,6 +63,12 @@ public sealed class ModelDownloader : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             var dest = Path.Combine(dir, file.Name);
+            var destDir = Path.GetDirectoryName(dest);
+            if (!string.IsNullOrEmpty(destDir))
+            {
+                Directory.CreateDirectory(destDir);
+            }
+
             var partial = dest + ".partial";
             var url = $"https://huggingface.co/{entry.Repo}/resolve/main/{file.Name}?download=true";
             var existing = File.Exists(partial) ? new FileInfo(partial).Length : 0L;
@@ -116,6 +124,63 @@ public sealed class ModelDownloader : IDisposable
 
             File.Move(partial, dest, overwrite: true);
         }
+    }
+
+    public async Task InstallLocalAsync(
+        ModelCatalogEntry entry,
+        string onnxPath,
+        string? csvPath,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(onnxPath))
+        {
+            throw new FileNotFoundException("ONNX file not found.", onnxPath);
+        }
+
+        var onnxInfo = new FileInfo(onnxPath);
+        if (onnxInfo.Length < CustomModelSpec.MinOnnxBytes)
+        {
+            throw new InvalidDataException("ONNX file is too small to be a tagger or encoder.");
+        }
+
+        if (onnxInfo.Length > CustomModelSpec.MaxOnnxBytes)
+        {
+            throw new InvalidDataException("ONNX file is larger than 8 GB.");
+        }
+
+        if (!onnxPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Pick a .onnx file.");
+        }
+
+        if (!string.IsNullOrEmpty(csvPath))
+        {
+            if (!File.Exists(csvPath))
+            {
+                throw new FileNotFoundException("Tag CSV not found.", csvPath);
+            }
+
+            var tags = TagCsvParser.Parse(await File.ReadAllTextAsync(csvPath, cancellationToken).ConfigureAwait(false));
+            if (tags.Count < CustomModelSpec.MinCsvTags)
+            {
+                throw new InvalidDataException("selected_tags.csv has no tag names.");
+            }
+        }
+        else if (!entry.Preprocess.Equals("Clip224", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Tagger models need a selected_tags.csv with a name column.");
+        }
+
+        var dir = ModelDirectory(_home, entry.Id);
+        Directory.CreateDirectory(dir);
+        File.Copy(onnxPath, Path.Combine(dir, "model.onnx"), overwrite: true);
+        if (!string.IsNullOrEmpty(csvPath))
+        {
+            File.Copy(csvPath, Path.Combine(dir, "selected_tags.csv"), overwrite: true);
+        }
+
+        entry.SizeBytes = onnxInfo.Length;
+        await Task.CompletedTask.ConfigureAwait(false);
     }
 
     public Task DeleteAsync(ModelCatalogEntry entry, CancellationToken cancellationToken = default)

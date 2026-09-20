@@ -56,6 +56,18 @@
       "preciseCharacter": 0.9,
       "recallGeneral": 0.2,
       "recallCharacter": 0.6
+    },
+    {
+      "id": "clip-vit-b32-openai",
+      "displayName": "CLIP ViT-B/32 (OpenAI)",
+      "repo": "Xenova/clip-vit-base-patch32",
+      "license": "MIT",
+      "description": "Similar-images encoder. OpenAI CLIP trained on web photos and a lot of illustration, so it works for both real life and anime. Quantized vision tower ~90 MB. Used only by Find similar — not a tagger.",
+      "preprocess": "Clip224",
+      "sizeBytes": 90000000,
+      "files": [
+        { "name": "onnx/vision_model_quantized.onnx" }
+      ]
     }
   ]
 }

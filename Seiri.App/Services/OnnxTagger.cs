@@ -1,4 +1,5 @@
 using Microsoft.ML.OnnxRuntime;
+using Seiri.Core;
 using Seiri.Core.Contracts;
 using Seiri.Core.Models;
 using Seiri.Core.Tagging;
@@ -17,6 +18,9 @@ public sealed class OnnxTagger : ITagger
     private string _inputName = "input";
     private string _outputName = "prediction";
     private bool _dml;
+    private bool _warmed;
+    public bool IsDirectMl => _dml;
+    public string RequestedProvider => _provider;
 
     public OnnxTagger(ModelCatalogEntry entry, IAppHome home, string executionProvider)
     {
@@ -35,7 +39,7 @@ public sealed class OnnxTagger : ITagger
             return Task.CompletedTask;
         }
 
-        return Task.Run(() => LoadSession(), cancellationToken);
+        return OrtWorker.InvokeAsync(LoadSession, cancellationToken);
     }
 
     public async Task<TagResult> TagAsync(TaggerImage image, TaggerOptions options, CancellationToken cancellationToken = default)
@@ -45,15 +49,7 @@ public sealed class OnnxTagger : ITagger
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                return RunOnce(image, options);
-            }
-            catch (Exception ex) when (_dml && IsProviderFailure(ex))
-            {
-                RecreateOnCpu();
-                return RunOnce(image, options);
-            }
+            return await OrtWorker.InvokeAsync(() => Infer(image, options), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -67,6 +63,26 @@ public sealed class OnnxTagger : ITagger
         _session = null;
         _run.Dispose();
         return ValueTask.CompletedTask;
+    }
+
+    private TagResult Infer(TaggerImage image, TaggerOptions options)
+    {
+        if (!_warmed)
+        {
+            AppLog.Heartbeat($"first infer '{_entry.Id}' provider={(_dml ? "DML" : "CPU")} {image.Width}x{image.Height}");
+            _warmed = true;
+        }
+
+        try
+        {
+            return RunOnce(image, options);
+        }
+        catch (Exception ex) when (_dml && IsProviderFailure(ex))
+        {
+            AppLog.Error($"DML infer '{_entry.Id}', falling back to CPU", ex);
+            RecreateOnCpu();
+            return RunOnce(image, options);
+        }
     }
 
     private TagResult RunOnce(TaggerImage image, TaggerOptions options)
@@ -101,29 +117,32 @@ public sealed class OnnxTagger : ITagger
         }
 
         _tags = TagCsvParser.Parse(File.ReadAllText(csv));
-        var wantGpu = !_provider.Equals("CPU", StringComparison.OrdinalIgnoreCase);
-        if (wantGpu)
+        var wantDml = ExecutionProviders.WantsDirectMl(_provider);
+        if (wantDml)
         {
             try
             {
+                AppLog.Heartbeat($"Loading tagger '{_entry.Id}' DirectML");
                 _session = new InferenceSession(onnx, CreateSessionOptions(dml: true));
                 _dml = true;
             }
-            catch (Exception) when (!_provider.Equals("GPU", StringComparison.OrdinalIgnoreCase))
+            catch (Exception ex)
             {
-                _session = null;
-            }
-            catch (Exception)
-            {
+                AppLog.Error($"DirectML load '{_entry.Id}', falling back to CPU", ex);
                 _session?.Dispose();
-                _session = null;
+                _session = new InferenceSession(onnx, CreateSessionOptions(dml: false));
                 _dml = false;
             }
         }
+        else
+        {
+            AppLog.Heartbeat($"Loading tagger '{_entry.Id}' CPU");
+            _session = new InferenceSession(onnx, CreateSessionOptions(dml: false));
+            _dml = false;
+        }
 
-        _session ??= new InferenceSession(onnx, CreateSessionOptions(dml: false));
-        _dml = _dml && _session is not null;
-        BindNames(_session!);
+        BindNames(_session);
+        AppLog.Heartbeat($"Tagger '{_entry.Id}' ready provider={ExecutionProviders.Describe(_dml)} input={_inputName} output={_outputName}");
     }
 
     private void RecreateOnCpu()
@@ -133,6 +152,7 @@ public sealed class OnnxTagger : ITagger
         _session = new InferenceSession(onnx, CreateSessionOptions(dml: false));
         _dml = false;
         BindNames(_session);
+        AppLog.Heartbeat($"Tagger '{_entry.Id}' recreated CPU");
     }
 
     private void BindNames(InferenceSession session)
@@ -149,13 +169,23 @@ public sealed class OnnxTagger : ITagger
     {
         var options = new SessionOptions
         {
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_BASIC,
             ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
-            EnableMemoryPattern = !dml
+            EnableMemoryPattern = false
         };
 
         if (dml)
         {
+            options.EnableCpuMemArena = false;
+            try
+            {
+                options.AddSessionConfigEntry("ep.dml.enable_graph_capture", "0");
+                options.AddSessionConfigEntry("ep.dml.enable_dynamic_graph_fusion", "0");
+            }
+            catch
+            {
+            }
+
             options.AppendExecutionProvider_DML(0);
         }
 

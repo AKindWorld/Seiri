@@ -11,8 +11,8 @@ public static class PixaiPreprocess
             throw new ArgumentOutOfRangeException(nameof(width), "Image size must be positive.");
         }
 
-        var rgb = ImageResize.FlattenBgraToRgb(bgra, width, height);
-        var resized = ImageResize.Bilinear(rgb, width, height, Size, Size);
+        var limited = ImageResize.FlattenAndLimit(bgra, width, height);
+        var resized = ImageResize.Bilinear(limited.Rgb, limited.Width, limited.Height, Size, Size);
         var tensor = new float[3 * Size * Size];
         var plane = Size * Size;
         for (var i = 0; i < plane; i++)

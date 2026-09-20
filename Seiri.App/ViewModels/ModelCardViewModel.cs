@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Seiri.Core;
 using Seiri.Core.Models;
 using Seiri.Infrastructure;
 
@@ -35,6 +36,9 @@ public partial class ModelCardViewModel : ObservableObject
     public string DownloadName => $"Download {Entry.DisplayName}";
 
     public string DeleteName => $"Delete {Entry.DisplayName}";
+
+    public bool IsTagger =>
+        !Entry.Preprocess.Equals("Clip224", StringComparison.OrdinalIgnoreCase);
 
     public bool IsEnabled
     {
@@ -103,6 +107,7 @@ public partial class ModelCardViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            AppLog.Error($"download {Entry.Id}", ex);
             _shell.ErrorMessage = $"Download failed for {Entry.DisplayName}: {ex.Message}";
             StatusText = "Download failed";
         }
@@ -129,10 +134,18 @@ public partial class ModelCardViewModel : ObservableObject
                 IsEnabled = false;
             }
 
+            if (Entry.Id.StartsWith("custom-", StringComparison.OrdinalIgnoreCase))
+            {
+                _shell.Settings.CustomModels.RemoveAll(m => m.Id.Equals(Entry.Id, StringComparison.OrdinalIgnoreCase));
+                _shell.PersistSettings();
+                _shell.Models.Remove(this);
+            }
+
             RefreshInstalled();
         }
         catch (Exception ex)
         {
+            AppLog.Error($"delete model {Entry.Id}", ex);
             _shell.ErrorMessage = $"Could not delete {Entry.DisplayName}: {ex.Message}";
         }
     }

@@ -9,24 +9,36 @@ namespace Seiri.Services;
 
 public sealed class ThumbnailGenerator
 {
-    public async Task GenerateAsync(string libraryRoot, string mediaRelUnix, CancellationToken cancellationToken = default)
+    public async Task<string?> GenerateAsync(
+        string libraryRoot,
+        string mediaRelUnix,
+        CancellationToken cancellationToken = default,
+        bool verifyShape = true)
     {
+        if (!ImagingWorker.HasAccess)
+        {
+            return await ImagingWorker.RunAsync(
+                () => GenerateAsync(libraryRoot, mediaRelUnix, cancellationToken, verifyShape),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         var source = GeneratedLayout.ToFullPath(libraryRoot, mediaRelUnix);
         if (!File.Exists(source))
         {
-            return;
+            return null;
         }
 
+        try
+        {
         var kind = MediaExtensions.Classify(Path.GetExtension(source));
         if (kind == MediaKind.Video)
         {
-            await GenerateVideoAsync(libraryRoot, mediaRelUnix, cancellationToken).ConfigureAwait(false);
-            return;
+            return await GenerateVideoAsync(libraryRoot, mediaRelUnix, cancellationToken).ConfigureAwait(false);
         }
 
         if (kind != MediaKind.Image)
         {
-            return;
+            return null;
         }
 
         var thumbRel = GeneratedLayout.ThumbRelativeUnix(mediaRelUnix);
@@ -45,9 +57,9 @@ public sealed class ThumbnailGenerator
 
         if (File.Exists(dest) && new FileInfo(dest).Length > 0
             && File.GetLastWriteTimeUtc(dest) >= File.GetLastWriteTimeUtc(source)
-            && !await IsStaleSquareThumbAsync(dest, width, height))
+            && (!verifyShape || !await IsStaleSquareThumbAsync(dest, width, height)))
         {
-            return;
+            return await ColorFromFileAsync(dest);
         }
 
         var longEdge = Math.Max(width, height);
@@ -69,6 +81,8 @@ public sealed class ThumbnailGenerator
             transform,
             ExifOrientationMode.RespectExifOrientation,
             ColorManagementMode.DoNotColorManage);
+        var pixels = pixelData.DetachPixelData();
+        var bucket = ColorBucket.FromBgra(pixels, (int)scaledW, (int)scaledH);
 
         var tmp = dest + ".tmp";
         if (File.Exists(tmp))
@@ -86,7 +100,7 @@ public sealed class ThumbnailGenerator
                 scaledH,
                 decoder.DpiX,
                 decoder.DpiY,
-                pixelData.DetachPixelData());
+                pixels);
             await encoder.FlushAsync();
             memory.Seek(0);
             using var reader = new DataReader(memory.GetInputStreamAt(0));
@@ -98,9 +112,46 @@ public sealed class ThumbnailGenerator
 
         File.Copy(tmp, dest, overwrite: true);
         File.Delete(tmp);
+        return bucket;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"thumb {source}", ex);
+            return null;
+        }
     }
 
-    private static async Task GenerateVideoAsync(string libraryRoot, string mediaRelUnix, CancellationToken cancellationToken)
+    public static async Task<string?> ColorFromFileAsync(string path)
+    {
+        if (!ImagingWorker.HasAccess)
+        {
+            return await ImagingWorker.RunAsync(() => ColorFromFileAsync(path)).ConfigureAwait(false);
+        }
+
+        try
+        {
+            var file = await StorageFile.GetFileFromPathAsync(path);
+            using var stream = await file.OpenAsync(FileAccessMode.Read);
+            var decoder = await BitmapDecoder.CreateAsync(stream);
+            var pixel = await decoder.GetPixelDataAsync(
+                BitmapPixelFormat.Bgra8,
+                BitmapAlphaMode.Premultiplied,
+                new BitmapTransform(),
+                ExifOrientationMode.RespectExifOrientation,
+                ColorManagementMode.DoNotColorManage);
+            return ColorBucket.FromBgra(pixel.DetachPixelData(), (int)decoder.PixelWidth, (int)decoder.PixelHeight);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<string?> GenerateVideoAsync(string libraryRoot, string mediaRelUnix, CancellationToken cancellationToken)
     {
         var source = GeneratedLayout.ToFullPath(libraryRoot, mediaRelUnix);
         var dest = GeneratedLayout.ToFullPath(libraryRoot, GeneratedLayout.ThumbRelativeUnix(mediaRelUnix));
@@ -113,7 +164,7 @@ public sealed class ThumbnailGenerator
         if (File.Exists(dest) && new FileInfo(dest).Length > 0
             && File.GetLastWriteTimeUtc(dest) >= File.GetLastWriteTimeUtc(source))
         {
-            return;
+            return await ColorFromFileAsync(dest);
         }
 
         try
@@ -122,7 +173,7 @@ public sealed class ThumbnailGenerator
             using var thumb = await file.GetThumbnailAsync(ThumbnailMode.SingleItem, 512, ThumbnailOptions.ResizeThumbnail);
             if (thumb is null || thumb.Size == 0)
             {
-                return;
+                return null;
             }
 
             var decoder = await BitmapDecoder.CreateAsync(thumb);
@@ -132,6 +183,8 @@ public sealed class ThumbnailGenerator
                 new BitmapTransform(),
                 ExifOrientationMode.RespectExifOrientation,
                 ColorManagementMode.DoNotColorManage);
+            var pixels = pixel.DetachPixelData();
+            var bucket = ColorBucket.FromBgra(pixels, (int)decoder.PixelWidth, (int)decoder.PixelHeight);
             var tmp = dest + ".tmp";
             using (var memory = new InMemoryRandomAccessStream())
             {
@@ -143,7 +196,7 @@ public sealed class ThumbnailGenerator
                     decoder.PixelHeight,
                     decoder.DpiX,
                     decoder.DpiY,
-                    pixel.DetachPixelData());
+                    pixels);
                 await encoder.FlushAsync();
                 memory.Seek(0);
                 using var reader = new DataReader(memory.GetInputStreamAt(0));
@@ -155,10 +208,12 @@ public sealed class ThumbnailGenerator
 
             File.Copy(tmp, dest, overwrite: true);
             File.Delete(tmp);
+            return bucket;
         }
         catch
         {
             // Some containers have no poster frame; the tile still shows a video mark.
+            return null;
         }
     }
 

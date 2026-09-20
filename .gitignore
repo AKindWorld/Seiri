@@ -3,6 +3,7 @@
 [Oo]bj/
 [Dd]ebug/
 [Rr]elease/
+Seiri.Tests/
 .vs/
 *.user
 *.suo
@@ -58,5 +59,6 @@ dist/
 references/
 screenshots/
 *.ps1
+*.bat
 *.md
 test-library/

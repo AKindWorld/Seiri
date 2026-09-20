@@ -14,9 +14,21 @@
     mc:Ignorable="d">
 
     <Page.Resources>
-        <DataTemplate x:Key="TileTemplate" x:DataType="models:MediaItem">
-            <local:MediaTile Item="{x:Bind Mode=OneWay}" />
-        </DataTemplate>
+        <local:GalleryTemplateSelector x:Key="GallerySelector">
+            <local:GalleryTemplateSelector.HeaderTemplate>
+                <DataTemplate x:DataType="models:GalleryEntry">
+                    <TextBlock
+                        Margin="0,12,0,4"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="{x:Bind Header}" />
+                </DataTemplate>
+            </local:GalleryTemplateSelector.HeaderTemplate>
+            <local:GalleryTemplateSelector.TileTemplate>
+                <DataTemplate x:DataType="models:GalleryEntry">
+                    <local:MediaTile Item="{x:Bind Item, Mode=OneWay}" />
+                </DataTemplate>
+            </local:GalleryTemplateSelector.TileTemplate>
+        </local:GalleryTemplateSelector>
     </Page.Resources>
 
     <Grid Padding="24,16,24,8">
@@ -36,19 +48,35 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <FontIcon FontSize="24" Glyph="&#xE91B;" />
+            <StackPanel Spacing="2">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon
+                        VerticalAlignment="Center"
+                        FontSize="16"
+                        Glyph="{x:Bind Gallery.HeaderGlyph, Mode=OneWay}" />
                     <TextBlock
                         x:Name="PageTitleText"
                         AutomationProperties.AutomationId="TxtPageTitle"
-                        Style="{StaticResource TitleTextBlockStyle}"
-                        Text="{x:Bind ViewModel.PageTitle, Mode=OneWay}" />
+                        VerticalAlignment="Center"
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        Text="{x:Bind Gallery.HeaderTitle, Mode=OneWay}" />
                 </StackPanel>
+                <TextBlock
+                    Margin="24,2,0,0"
+                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                    Text="{x:Bind Gallery.CurrentGroupLabel, Mode=OneWay}"
+                    Visibility="{x:Bind local:GalleryPage.BoolVis(Gallery.ShowGroupCaption), Mode=OneWay}" />
+                <TextBlock
+                    Margin="24,2,0,0"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind Gallery.HeaderDetail, Mode=OneWay}"
+                    TextWrapping="Wrap"
+                    Visibility="{x:Bind local:GalleryPage.BoolVis(Gallery.HasHeaderDetail), Mode=OneWay}" />
                 <TextBlock
                     x:Name="SubtitleText"
                     AutomationProperties.AutomationId="TxtSubtitle"
-                    Margin="40,4,0,0"
+                    Margin="24,2,0,0"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     Style="{StaticResource CaptionTextBlockStyle}"
                     Text="{x:Bind Gallery.Subtitle, Mode=OneWay}" />
@@ -75,9 +103,9 @@
                 <Button AutomationProperties.AutomationId="BtnMediaType" AutomationProperties.Name="Media type" Style="{StaticResource ChromeIconButtonStyle}">
                     <Button.Flyout>
                         <MenuFlyout>
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="All" Text="Photos &amp; videos" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="Images" Text="Photos" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="Videos" Text="Videos" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="All" GroupName="Kind" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.KindFilter, 'All'), Mode=OneWay}" Text="Photos &amp; videos" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="Images" GroupName="Kind" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.KindFilter, 'Images'), Mode=OneWay}" Text="Photos" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetKindCommand}" CommandParameter="Videos" GroupName="Kind" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.KindFilter, 'Videos'), Mode=OneWay}" Text="Videos" />
                         </MenuFlyout>
                     </Button.Flyout>
                     <FontIcon Glyph="&#xE714;" />
@@ -86,12 +114,27 @@
                 <Button AutomationProperties.AutomationId="BtnSort" AutomationProperties.Name="Sort" Style="{StaticResource ChromeIconButtonStyle}">
                     <Button.Flyout>
                         <MenuFlyout>
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateTaken" Text="Date taken" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateAdded" Text="Date added" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateModified" Text="Date modified" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="Name" Text="Name" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="Size" Text="Size" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="TagCount" Text="Tag count" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateTaken" GroupName="Sort" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Sort, 'DateTaken'), Mode=OneWay}" Text="Date taken" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateAdded" GroupName="Sort" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Sort, 'DateAdded'), Mode=OneWay}" Text="Date added" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="DateModified" GroupName="Sort" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Sort, 'DateModified'), Mode=OneWay}" Text="Date modified" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="Name" GroupName="Sort" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Sort, 'Name'), Mode=OneWay}" Text="Name" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="Size" GroupName="Sort" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Sort, 'Size'), Mode=OneWay}" Text="Size" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortCommand}" CommandParameter="TagCount" GroupName="Sort" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Sort, 'TagCount'), Mode=OneWay}" Text="Number of tags" />
+                            <MenuFlyoutSeparator />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortDirCommand}" CommandParameter="Asc" GroupName="SortDir" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Direction, 'Asc'), Mode=OneWay}" Text="Ascending" />
+                            <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetSortDirCommand}" CommandParameter="Desc" GroupName="SortDir" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Direction, 'Desc'), Mode=OneWay}" Text="Descending" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutSubItem Text="Group by">
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="None" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'None'), Mode=OneWay}" Text="(None)" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="DateTaken" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'DateTaken'), Mode=OneWay}" Text="Date taken" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="DateAdded" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'DateAdded'), Mode=OneWay}" Text="Date added" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="DateModified" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'DateModified'), Mode=OneWay}" Text="Date modified" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="Name" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'Name'), Mode=OneWay}" Text="Name" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="Type" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'Type'), Mode=OneWay}" Text="Type" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="Size" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'Size'), Mode=OneWay}" Text="Size" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="Tags" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'Tags'), Mode=OneWay}" Text="Tags" />
+                                <RadioMenuFlyoutItem Command="{x:Bind Gallery.SetGroupCommand}" CommandParameter="Dimensions" GroupName="GroupBy" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.GroupBy, 'Dimensions'), Mode=OneWay}" Text="Dimensions" />
+                            </MenuFlyoutSubItem>
                         </MenuFlyout>
                     </Button.Flyout>
                     <FontIcon Glyph="&#xE8CB;" />
@@ -99,40 +142,197 @@
 
                 <Button x:Name="FilterButton" AutomationProperties.AutomationId="BtnFilter" AutomationProperties.Name="Filter" Style="{StaticResource ChromeIconButtonStyle}">
                     <Button.Flyout>
-                        <Flyout>
-                            <StackPanel Width="320" Spacing="12">
-                                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Filters" />
-                                <TextBox
-                                    x:Name="FilterIncludeBox"
-                                    Header="Include tags"
-                                    PlaceholderText="1girl, long hair" />
-                                <TextBox
-                                    x:Name="FilterExcludeBox"
-                                    Header="Exclude tags"
-                                    PlaceholderText="monochrome" />
-                                <ComboBox
-                                    x:Name="FilterKindBox"
-                                    Header="Media type"
-                                    SelectedIndex="0">
-                                    <ComboBoxItem Content="Any" Tag="All" />
-                                    <ComboBoxItem Content="Photos" Tag="Images" />
-                                    <ComboBoxItem Content="Videos" Tag="Videos" />
-                                </ComboBox>
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <HyperlinkButton Click="OnClearFilters" Content="Clear Filters" />
-                                    <Button Grid.Column="1" Click="OnCancelFilters" Content="Cancel" />
-                                    <Button
-                                        Grid.Column="2"
-                                        Click="OnApplyFilters"
-                                        Content="Apply Filters"
-                                        Style="{StaticResource AccentButtonStyle}" />
-                                </Grid>
-                            </StackPanel>
+                        <Flyout Opened="OnFilterOpened">
+                            <Grid Width="360">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <ScrollViewer MaxHeight="480" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="10" Padding="0,0,8,12">
+                                        <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Filters" />
+                                        <Expander
+                                            Header="{x:Bind Gallery.FilterIncludeHeader, Mode=OneWay}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Stretch">
+                                            <StackPanel Spacing="8">
+                                                <TextBox
+                                                    x:Name="FilterIncludeNeedle"
+                                                    PlaceholderText="Filter list"
+                                                    TextChanged="OnIncludeNeedle" />
+                                                <ScrollViewer MaxHeight="200">
+                                                    <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterIncludeTags, Mode=OneWay}">
+                                                        <ItemsRepeater.Layout>
+                                                            <StackLayout />
+                                                        </ItemsRepeater.Layout>
+                                                        <ItemsRepeater.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:FilterTagRow">
+                                                                <CheckBox
+                                                                    Checked="OnFilterCheck"
+                                                                    Content="{x:Bind Name, Mode=OneWay}"
+                                                                    IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
+                                                                    Tag="{x:Bind Mode=OneWay}"
+                                                                    Unchecked="OnFilterCheck" />
+                                                            </DataTemplate>
+                                                        </ItemsRepeater.ItemTemplate>
+                                                    </ItemsRepeater>
+                                                </ScrollViewer>
+                                            </StackPanel>
+                                        </Expander>
+                                        <Expander
+                                            Header="{x:Bind Gallery.FilterExcludeHeader, Mode=OneWay}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Stretch">
+                                            <StackPanel Spacing="8">
+                                                <TextBox
+                                                    PlaceholderText="Filter list"
+                                                    TextChanged="OnExcludeNeedle" />
+                                                <ScrollViewer MaxHeight="200">
+                                                    <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterExcludeTags, Mode=OneWay}">
+                                                        <ItemsRepeater.Layout>
+                                                            <StackLayout />
+                                                        </ItemsRepeater.Layout>
+                                                        <ItemsRepeater.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:FilterTagRow">
+                                                                <CheckBox
+                                                                    Checked="OnFilterCheck"
+                                                                    Content="{x:Bind Name, Mode=OneWay}"
+                                                                    IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
+                                                                    Tag="{x:Bind Mode=OneWay}"
+                                                                    Unchecked="OnFilterCheck" />
+                                                            </DataTemplate>
+                                                        </ItemsRepeater.ItemTemplate>
+                                                    </ItemsRepeater>
+                                                </ScrollViewer>
+                                            </StackPanel>
+                                        </Expander>
+                                        <Expander
+                                            Header="{x:Bind Gallery.FilterCharacterHeader, Mode=OneWay}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Stretch">
+                                            <StackPanel Spacing="8">
+                                                <TextBox
+                                                    PlaceholderText="Filter list"
+                                                    TextChanged="OnCharacterNeedle" />
+                                                <ScrollViewer MaxHeight="200">
+                                                    <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterCharacterTags, Mode=OneWay}">
+                                                        <ItemsRepeater.Layout>
+                                                            <StackLayout />
+                                                        </ItemsRepeater.Layout>
+                                                        <ItemsRepeater.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:FilterTagRow">
+                                                                <CheckBox
+                                                                    Checked="OnFilterCheck"
+                                                                    Content="{x:Bind Name, Mode=OneWay}"
+                                                                    IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
+                                                                    Tag="{x:Bind Mode=OneWay}"
+                                                                    Unchecked="OnFilterCheck" />
+                                                            </DataTemplate>
+                                                        </ItemsRepeater.ItemTemplate>
+                                                    </ItemsRepeater>
+                                                </ScrollViewer>
+                                            </StackPanel>
+                                        </Expander>
+                                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Extensions" />
+                                        <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterExtensions, Mode=OneWay}">
+                                            <ItemsRepeater.Layout>
+                                                <controls:WrapLayout HorizontalSpacing="8" VerticalSpacing="4" />
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:FilterChoice">
+                                                    <CheckBox Content="{x:Bind Label, Mode=OneWay}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Folders" />
+                                        <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterFolders, Mode=OneWay}">
+                                            <ItemsRepeater.Layout>
+                                                <StackLayout />
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:FilterChoice">
+                                                    <CheckBox Content="{x:Bind Label, Mode=OneWay}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                        <Expander Header="Shape" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                            <StackPanel Spacing="8">
+                                                <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterOrientations, Mode=OneWay}">
+                                                    <ItemsRepeater.Layout>
+                                                        <controls:WrapLayout HorizontalSpacing="8" VerticalSpacing="4" />
+                                                    </ItemsRepeater.Layout>
+                                                    <ItemsRepeater.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:FilterChoice">
+                                                            <CheckBox Content="{x:Bind Label, Mode=OneWay}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+                                                        </DataTemplate>
+                                                    </ItemsRepeater.ItemTemplate>
+                                                </ItemsRepeater>
+                                                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="Aspect" />
+                                                <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterAspects, Mode=OneWay}">
+                                                    <ItemsRepeater.Layout>
+                                                        <controls:WrapLayout HorizontalSpacing="8" VerticalSpacing="4" />
+                                                    </ItemsRepeater.Layout>
+                                                    <ItemsRepeater.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:FilterChoice">
+                                                            <CheckBox Content="{x:Bind Label, Mode=OneWay}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+                                                        </DataTemplate>
+                                                    </ItemsRepeater.ItemTemplate>
+                                                </ItemsRepeater>
+                                            </StackPanel>
+                                        </Expander>
+                                        <Expander Header="Color" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                            <ItemsRepeater ItemsSource="{x:Bind Gallery.FilterColors, Mode=OneWay}">
+                                                <ItemsRepeater.Layout>
+                                                    <controls:WrapLayout HorizontalSpacing="8" VerticalSpacing="4" />
+                                                </ItemsRepeater.Layout>
+                                                <ItemsRepeater.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:FilterChoice">
+                                                        <CheckBox Content="{x:Bind Label, Mode=OneWay}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+                                                    </DataTemplate>
+                                                </ItemsRepeater.ItemTemplate>
+                                            </ItemsRepeater>
+                                        </Expander>
+                                        <ComboBox
+                                            Header="Date field"
+                                            SelectedIndex="{x:Bind Gallery.FilterDateField, Mode=TwoWay}">
+                                            <ComboBoxItem Content="Date taken" />
+                                            <ComboBoxItem Content="Date added" />
+                                            <ComboBoxItem Content="Date modified" />
+                                        </ComboBox>
+                                        <ComboBox
+                                            Header="Date"
+                                            SelectedIndex="{x:Bind Gallery.FilterDateMode, Mode=TwoWay}">
+                                            <ComboBoxItem Content="Any" />
+                                            <ComboBoxItem Content="After" />
+                                            <ComboBoxItem Content="Before" />
+                                            <ComboBoxItem Content="Exact" />
+                                        </ComboBox>
+                                        <CalendarDatePicker
+                                            Date="{x:Bind Gallery.FilterDate, Mode=TwoWay}"
+                                            Header="Day" />
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <Border
+                                    Grid.Row="1"
+                                    Padding="0,12,0,0"
+                                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                    BorderThickness="0,1,0,0">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <HyperlinkButton Click="OnClearFilters" Content="Clear" />
+                                        <Button Grid.Column="1" Click="OnCancelFilters" Content="Cancel" />
+                                        <Button
+                                            Grid.Column="2"
+                                            Click="OnApplyFilters"
+                                            Content="Apply"
+                                            Style="{StaticResource AccentButtonStyle}" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
                         </Flyout>
                     </Button.Flyout>
                     <FontIcon Glyph="&#xE71C;" />
@@ -141,13 +341,13 @@
                 <Button AutomationProperties.AutomationId="BtnLayout" AutomationProperties.Name="Layout" Style="{StaticResource ChromeIconButtonStyle}">
                     <Button.Flyout>
                         <MenuFlyout>
-                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutGrid" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="Grid" Text="Grid" />
-                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutMasonry" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="Masonry" Text="Masonry" />
-                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutRiver" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="River" Text="River" />
+                            <RadioMenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutGrid" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="Grid" GroupName="Layout" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Layout, 'Grid'), Mode=OneWay}" Text="Grid" />
+                            <RadioMenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutMasonry" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="Masonry" GroupName="Layout" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Layout, 'Masonry'), Mode=OneWay}" Text="Masonry" />
+                            <RadioMenuFlyoutItem AutomationProperties.AutomationId="MnuLayoutRiver" Command="{x:Bind Gallery.SetLayoutCommand}" CommandParameter="River" GroupName="Layout" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Layout, 'River'), Mode=OneWay}" Text="River" />
                             <MenuFlyoutSeparator />
-                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuDensitySmall" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Small" Text="Compact" />
-                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuDensityMedium" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Medium" Text="Comfortable" />
-                            <MenuFlyoutItem AutomationProperties.AutomationId="MnuDensityLarge" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Large" Text="Spacious" />
+                            <RadioMenuFlyoutItem AutomationProperties.AutomationId="MnuDensitySmall" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Small" GroupName="Density" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Density, 'Small'), Mode=OneWay}" Text="Compact" />
+                            <RadioMenuFlyoutItem AutomationProperties.AutomationId="MnuDensityMedium" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Medium" GroupName="Density" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Density, 'Medium'), Mode=OneWay}" Text="Comfortable" />
+                            <RadioMenuFlyoutItem AutomationProperties.AutomationId="MnuDensityLarge" Command="{x:Bind Gallery.SetDensityCommand}" CommandParameter="Large" GroupName="Density" IsChecked="{x:Bind local:GalleryPage.Match(Gallery.Density, 'Large'), Mode=OneWay}" Text="Spacious" />
                         </MenuFlyout>
                     </Button.Flyout>
                     <FontIcon Glyph="&#xF0E2;" />
@@ -167,13 +367,34 @@
                             <MenuFlyoutItem Command="{x:Bind Gallery.SelectAllCommand}" Text="Select all" />
                             <MenuFlyoutItem Command="{x:Bind Gallery.SelectNoneCommand}" Text="Select none" />
                             <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Command="{x:Bind ViewModel.TogglePreviewCommand}" Text="Preview pane" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.OpenInPhotosCommand}" Text="Open in Photos" />
-                            <MenuFlyoutItem Command="{x:Bind Gallery.ToggleFavoriteCommand}" Text="Toggle favorite" />
+                            <MenuFlyoutItem Click="OnFindDuplicates" Text="Find duplicates" />
+                            <MenuFlyoutItem Click="OnFindSimilar" Text="Find similar" />
+                            <MenuFlyoutSeparator Visibility="{x:Bind local:GalleryPage.BoolVis(ViewModel.ShowDirectoryTagging), Mode=OneWay}" />
+                            <MenuFlyoutItem
+                                Command="{x:Bind ViewModel.TagFolderUntaggedCommand}"
+                                Text="Tag untagged in this folder"
+                                Visibility="{x:Bind local:GalleryPage.BoolVis(ViewModel.ShowDirectoryTagging), Mode=OneWay}" />
+                            <MenuFlyoutItem
+                                Command="{x:Bind ViewModel.RetagFolderCommand}"
+                                Text="Retag all in this folder"
+                                Visibility="{x:Bind local:GalleryPage.BoolVis(ViewModel.ShowDirectoryTagging), Mode=OneWay}" />
                         </MenuFlyout>
                     </Button.Flyout>
                     <FontIcon Glyph="&#xE712;" />
                 </Button>
+
+                <ToggleButton
+                    AutomationProperties.AutomationId="BtnTogglePreview"
+                    AutomationProperties.Name="Preview pane"
+                    Command="{x:Bind ViewModel.TogglePreviewCommand}"
+                    CornerRadius="4"
+                    IsChecked="{x:Bind ViewModel.IsPreviewOpen, Mode=OneWay}"
+                    MinHeight="36"
+                    MinWidth="40"
+                    Padding="8,6"
+                    ToolTipService.ToolTip="Preview pane">
+                    <FontIcon Glyph="&#xE89F;" />
+                </ToggleButton>
             </StackPanel>
 
             <SelectorBar
@@ -201,13 +422,16 @@
                 <StackPanel Spacing="4">
                     <ProgressBar
                         AutomationProperties.AutomationId="PrgTagging"
+                        Height="4"
                         Maximum="100"
                         Value="{x:Bind ViewModel.TaggingPercent, Mode=OneWay}" />
                     <TextBlock
                         AutomationProperties.AutomationId="TxtTaggingStatus"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        MaxLines="1"
                         Text="{x:Bind ViewModel.TaggingMessage, Mode=OneWay}"
-                        TextWrapping="Wrap" />
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="NoWrap" />
                 </StackPanel>
                 <Button
                     Grid.Column="1"
@@ -218,12 +442,30 @@
             </Grid>
         </Grid>
 
-        <Grid x:Name="TileHost" Grid.Row="1" SizeChanged="OnTileHostSizeChanged">
+        <Grid x:Name="TileHost" Grid.Row="1" PointerWheelChanged="OnGalleryWheel" SizeChanged="OnTileHostSizeChanged">
+            <Border
+                Canvas.ZIndex="10"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                Visibility="{x:Bind local:GalleryPage.BoolVis(ViewModel.IsLibraryLoading), Mode=OneWay}">
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="12">
+                    <ProgressRing
+                        Width="48"
+                        Height="48"
+                        IsActive="{x:Bind ViewModel.IsLibraryLoading, Mode=OneWay}" />
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.LoadingMessage, Mode=OneWay}" />
+                </StackPanel>
+            </Border>
             <StackPanel
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Spacing="12"
-                Visibility="{x:Bind local:GalleryPage.EmptyVis(Gallery.IsEmpty, Gallery.HasLibraries), Mode=OneWay}">
+                Visibility="{x:Bind local:GalleryPage.EmptyVis(Gallery.IsEmpty, Gallery.HasLibraries, ViewModel.IsLibraryLoading), Mode=OneWay}">
                 <FontIcon FontSize="48" Glyph="&#xE8B7;" />
                 <TextBlock AutomationProperties.AutomationId="TxtEmptyTitle" Style="{StaticResource SubtitleTextBlockStyle}" Text="Add a folder to start" />
                 <TextBlock
@@ -247,82 +489,50 @@
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Spacing="12"
-                Visibility="{x:Bind local:GalleryPage.NoMatchVis(Gallery.IsEmpty, Gallery.HasLibraries), Mode=OneWay}">
+                Visibility="{x:Bind local:GalleryPage.NoMatchVis(Gallery.IsEmpty, Gallery.HasLibraries, ViewModel.IsLibraryLoading), Mode=OneWay}">
                 <FontIcon FontSize="48" Glyph="&#xE721;" />
                 <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="{x:Bind local:GalleryPage.EmptyMatchTitle(Gallery.ShowTaggingFilters, Gallery.TaggedFilter), Mode=OneWay}" />
                 <HyperlinkButton Command="{x:Bind Gallery.ClearSearchCommand}" Content="Clear search" />
             </StackPanel>
 
-            <ScrollViewer Visibility="{x:Bind local:GalleryPage.GridGroupsVis(Gallery.Layout, Gallery.IsEmpty, Gallery.Sort), Mode=OneWay}">
-                <!-- grouped grid -->
-                <ItemsRepeater
-                    x:Name="GroupedRepeater"
-                    ElementPrepared="OnRepeaterPrepared"
-                    ItemsSource="{x:Bind Gallery.Groups, Mode=OneWay}">
-                    <ItemsRepeater.Layout>
-                        <StackLayout Spacing="8" />
-                    </ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate>
-                        <DataTemplate x:DataType="vm:GalleryGroup">
-                            <StackPanel>
-                                <TextBlock
-                                    Margin="0,12,0,8"
-                                    Style="{StaticResource SubtitleTextBlockStyle}"
-                                    Text="{x:Bind Header, Mode=OneWay}"
-                                    Visibility="{x:Bind local:GalleryPage.BoolVis(ShowHeader), Mode=OneWay}" />
-                                <ItemsRepeater ItemTemplate="{StaticResource TileTemplate}" ItemsSource="{x:Bind Items, Mode=OneWay}">
-                                    <ItemsRepeater.Layout>
-                                        <UniformGridLayout
-                                            MinColumnSpacing="8"
-                                            MinRowSpacing="8"
-                                            MinItemHeight="{Binding TileSize, ElementName=Self}"
-                                            MinItemWidth="{Binding TileSize, ElementName=Self}"
-                                            ItemsStretch="None" />
-                                    </ItemsRepeater.Layout>
-                                </ItemsRepeater>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsRepeater.ItemTemplate>
-                </ItemsRepeater>
-            </ScrollViewer>
-
-            <ScrollViewer Visibility="{x:Bind local:GalleryPage.GridFlatVis(Gallery.Layout, Gallery.IsEmpty, Gallery.Sort), Mode=OneWay}">
-                <ItemsRepeater ItemTemplate="{StaticResource TileTemplate}" ItemsSource="{x:Bind Gallery.Items, Mode=OneWay}">
-                    <ItemsRepeater.Layout>
-                        <UniformGridLayout
-                            x:Name="FlatGridLayout"
-                            MinColumnSpacing="8"
-                            MinRowSpacing="8"
-                            MinItemHeight="{x:Bind TileSize, Mode=OneWay}"
-                            MinItemWidth="{x:Bind TileSize, Mode=OneWay}"
-                            ItemsStretch="None" />
-                    </ItemsRepeater.Layout>
-                </ItemsRepeater>
-            </ScrollViewer>
-
-            <ScrollViewer Visibility="{x:Bind local:GalleryPage.MasonryVis(Gallery.Layout, Gallery.IsEmpty), Mode=OneWay}">
-                <ItemsRepeater ItemTemplate="{StaticResource TileTemplate}" ItemsSource="{x:Bind Gallery.Items, Mode=OneWay}">
-                    <ItemsRepeater.Layout>
-                        <controls:StaggeredLayout
-                            x:Name="MasonryLayout"
-                            ColumnSpacing="8"
-                            RowSpacing="8"
-                            DesiredColumnWidth="{x:Bind Gallery.MasonryColumnWidth, Mode=OneWay}"
-                            ItemsStretch="Fill" />
-                    </ItemsRepeater.Layout>
-                </ItemsRepeater>
-            </ScrollViewer>
-
-            <ScrollViewer Visibility="{x:Bind local:GalleryPage.RiverVis(Gallery.Layout, Gallery.IsEmpty), Mode=OneWay}">
-                <ItemsRepeater
-                    x:Name="RiverRepeater"
-                    ItemTemplate="{StaticResource TileTemplate}"
-                    ItemsSource="{x:Bind Gallery.Items, Mode=OneWay}">
-                    <ItemsRepeater.Layout>
-                        <layouts:JustifiedLayout x:Name="RiverLayout" Spacing="8" />
-                    </ItemsRepeater.Layout>
-                </ItemsRepeater>
-            </ScrollViewer>
+            <Grid Visibility="{x:Bind local:GalleryPage.GalleryVis(Gallery.IsEmpty), Mode=OneWay}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ScrollView
+                    x:Name="GalleryScroll"
+                    HorizontalScrollBarVisibility="Hidden"
+                    HorizontalScrollMode="Disabled"
+                    Loaded="OnGalleryScrollLoaded"
+                    SizeChanged="OnGalleryScrollSizeChanged"
+                    ViewChanged="OnGalleryViewChanged"
+                    VerticalScrollBarVisibility="Hidden"
+                    VerticalScrollMode="Enabled">
+                    <ItemsRepeater
+                        x:Name="GalleryRepeater"
+                        ElementClearing="OnElementClearing"
+                        ItemTemplate="{StaticResource GallerySelector}"
+                        ItemsSource="{x:Bind Gallery.Entries, Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <layouts:GalleryVirtualizingLayout
+                                x:Name="GalleryLayout"
+                                MasonryColumnWidth="{x:Bind Gallery.MasonryColumnWidth, Mode=OneWay}"
+                                Mode="{x:Bind Gallery.Layout, Mode=OneWay}"
+                                RiverRowHeight="{x:Bind Gallery.RiverRowHeight, Mode=OneWay}"
+                                Spacing="8"
+                                TileSize="{x:Bind TileSize, Mode=OneWay}" />
+                        </ItemsRepeater.Layout>
+                    </ItemsRepeater>
+                </ScrollView>
+                <AnnotatedScrollBar
+                    x:Name="IndexBar"
+                    Grid.Column="1"
+                    Margin="4,0,0,0"
+                    AutomationProperties.AutomationId="GalleryIndexBar"
+                    DetailLabelRequested="OnIndexBarDetail"
+                    Visibility="{x:Bind local:GalleryPage.BoolVis(Gallery.ShowIndexBar), Mode=OneWay}" />
+            </Grid>
         </Grid>
     </Grid>
 </Page>

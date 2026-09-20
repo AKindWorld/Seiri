@@ -1,3 +1,4 @@
+using Seiri.Core;
 using Seiri.Core.Models;
 using Seiri.Core.Tagging;
 using Seiri.Infrastructure;
@@ -6,6 +7,44 @@ namespace Seiri.Tests;
 
 public class TaggingTests
 {
+    [Fact]
+    public void GPU_and_Auto_request_DirectML_CPU_does_not()
+    {
+        Assert.True(ExecutionProviders.WantsDirectMl("GPU"));
+        Assert.True(ExecutionProviders.WantsDirectMl("Auto"));
+        Assert.True(ExecutionProviders.WantsDirectMl(null));
+        Assert.False(ExecutionProviders.WantsDirectMl("CPU"));
+        Assert.Equal("DirectML", ExecutionProviders.Describe(true));
+        Assert.Equal("CPU", ExecutionProviders.Describe(false));
+    }
+
+    [Fact]
+    public void Tagging_progress_throttles_ui_except_start_and_end()
+    {
+        var last = 0L;
+        var loading = new TaggingProgress { Phase = "loading", Total = 100 };
+        Assert.True(loading.ShouldPublishUi(ref last, minIntervalMs: 10_000));
+
+        last = Environment.TickCount64;
+        var mid = new TaggingProgress { Phase = "tagging", Done = 1, Total = 100 };
+        Assert.False(mid.ShouldPublishUi(ref last, minIntervalMs: 10_000));
+
+        var done = new TaggingProgress { Phase = "tagging", Done = 100, Total = 100 };
+        Assert.True(done.ShouldPublishUi(ref last, minIntervalMs: 10_000));
+    }
+
+    [Fact]
+    public void FlattenAndLimit_shrinks_huge_images()
+    {
+        const int w = 2000;
+        const int h = 1000;
+        var bgra = new byte[w * h * 4];
+        var limited = ImageResize.FlattenAndLimit(bgra, w, h, maxEdge: 500);
+        Assert.True(limited.Width <= 500);
+        Assert.True(limited.Height <= 500);
+        Assert.Equal(limited.Width * limited.Height * 3, limited.Rgb.Length);
+    }
+
     [Fact]
     public void WdV3_white_pixel_stays_white_bgr()
     {
@@ -183,10 +222,11 @@ public class TaggingTests
     public void Catalog_has_v1_models()
     {
         var catalog = ModelCatalog.Load(null);
-        Assert.Equal(3, catalog.Count);
+        Assert.Equal(4, catalog.Count);
         Assert.Contains(catalog, m => m.Id == "wd-eva02-large-tagger-v3");
         Assert.Contains(catalog, m => m.Id == "wd-swinv2-tagger-v3");
         Assert.Contains(catalog, m => m.Id == "pixai-tagger-v0.9");
+        Assert.Contains(catalog, m => m.Id == "clip-vit-b32-openai" && m.Preprocess == "Clip224");
         Assert.Equal("WdV3", catalog[0].Preprocess);
         Assert.Equal("PixaiV09", catalog[2].Preprocess);
     }

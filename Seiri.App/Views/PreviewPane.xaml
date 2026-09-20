@@ -4,108 +4,415 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
-    xmlns:local="using:Seiri.Views">
+    xmlns:local="using:Seiri.Views"
+    xmlns:models="using:Seiri.Core.Models">
+
+    <UserControl.Resources>
+        <DataTemplate x:Key="TagChipTemplate" x:DataType="models:TagRecord">
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                CornerRadius="16"
+                Padding="2,2,2,2">
+                <StackPanel Orientation="Horizontal" Spacing="0">
+                    <Button
+                        MinWidth="0"
+                        Padding="10,4,6,4"
+                        HorizontalAlignment="Stretch"
+                        AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
+                        Click="OnSearchTag"
+                        Content="{x:Bind Name, Mode=OneWay}"
+                        Style="{StaticResource SubtleButtonStyle}"
+                        Tag="{x:Bind Mode=OneWay}"
+                        ToolTipService.ToolTip="Search this tag" />
+                    <Button
+                        Width="28"
+                        Height="28"
+                        Padding="0"
+                        AutomationProperties.Name="Remove tag"
+                        Click="OnRemoveTag"
+                        Style="{StaticResource SubtleButtonStyle}"
+                        Tag="{x:Bind Mode=OneWay}"
+                        ToolTipService.ToolTip="Remove tag">
+                        <FontIcon FontSize="10" Glyph="&#xE711;" />
+                    </Button>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
 
     <Border
         Background="{ThemeResource PreviewPaneBackgroundBrush}"
         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
         BorderThickness="1,0,0,0"
         Padding="16">
-        <ScrollViewer>
-            <StackPanel x:Name="PreviewStack" Spacing="16">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ScrollViewer
+                x:Name="PreviewScroll"
+                Padding="0,0,4,0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                SizeChanged="OnPreviewSizeChanged"
+                VerticalScrollBarVisibility="Hidden"
+                ViewChanged="OnPreviewViewChanged">
+                <StackPanel x:Name="PreviewStack" Spacing="16">
                 <TextBlock AutomationProperties.AutomationId="TxtPreviewHeader" Style="{StaticResource SubtitleTextBlockStyle}" Text="Preview" />
 
-                <Image
-                    x:Name="PreviewImage"
-                    HorizontalAlignment="Stretch"
-                    Stretch="Uniform"
-                    Source="{x:Bind local:PreviewPane.FullImage(Gallery.SelectedItem), Mode=OneWay}" />
-
-                <StackPanel Spacing="8" Visibility="{x:Bind local:PreviewPane.HasItem(Gallery.SelectedItem), Mode=OneWay}">
-                    <TextBlock
-                        Style="{StaticResource BodyStrongTextBlockStyle}"
-                        Text="{x:Bind local:PreviewPane.NameOf(Gallery.SelectedItem), Mode=OneWay}"
-                        TextWrapping="Wrap" />
-                    <HyperlinkButton
-                        Content="{x:Bind local:PreviewPane.PathOf(Gallery.SelectedItem), Mode=OneWay}"
-                        Click="OnRevealPath"
-                        FontSize="12"
-                        ToolTipService.ToolTip="{x:Bind local:PreviewPane.PathOf(Gallery.SelectedItem), Mode=OneWay}" />
+                <StackPanel Spacing="8" Visibility="{x:Bind local:PreviewPane.BoolVis(Gallery.IsMultiPreview), Mode=OneWay}">
+                    <Grid>
+                        <ItemsRepeater ItemsSource="{x:Bind Gallery.CollageItems, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <UniformGridLayout
+                                    MinColumnSpacing="4"
+                                    MinItemHeight="72"
+                                    MinItemWidth="72"
+                                    MinRowSpacing="4" />
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="models:MediaItem">
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4">
+                                        <Image Stretch="UniformToFill" Source="{x:Bind local:PreviewPane.ThumbFromPath(ThumbFullPath), Mode=OneWay}" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                        <Border
+                            Margin="8"
+                            Padding="8,4"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Background="#99000000"
+                            CornerRadius="4"
+                            Visibility="{x:Bind local:PreviewPane.CountVis(Gallery.ExtraSelectedCount), Mode=OneWay}">
+                            <TextBlock
+                                Foreground="White"
+                                Text="{x:Bind local:PreviewPane.ExtraLabel(Gallery.ExtraSelectedCount), Mode=OneWay}" />
+                        </Border>
+                    </Grid>
                     <TextBlock
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="{x:Bind local:PreviewPane.MetaOf(Gallery.SelectedItem), Mode=OneWay}"
+                        Text="{x:Bind Gallery.MultiMeta, Mode=OneWay}"
                         TextWrapping="Wrap" />
-                    <TextBlock
-                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                        Text="{x:Bind local:PreviewPane.ErrorOf(Gallery.SelectedItem), Mode=OneWay}"
-                        TextWrapping="Wrap"
-                        Visibility="{x:Bind local:PreviewPane.ErrorVis(Gallery.SelectedItem), Mode=OneWay}" />
-
-                    <Button
-                        AutomationProperties.AutomationId="BtnToggleFavorite"
-                        HorizontalAlignment="Stretch"
-                        Command="{x:Bind Gallery.ToggleFavoriteCommand}"
-                        Content="Toggle favorite" />
-                    <Button
-                        AutomationProperties.AutomationId="BtnCopyImage"
-                        HorizontalAlignment="Stretch"
-                        Command="{x:Bind Gallery.CopyImageCommand}"
-                        Content="Copy image" />
-                    <Button
-                        AutomationProperties.AutomationId="BtnTagCurrent"
-                        HorizontalAlignment="Stretch"
-                        Command="{x:Bind Gallery.TagCurrentCommand}"
-                        Content="Tag / retag"
-                        IsEnabled="{x:Bind Shell.CanTagCurrent, Mode=OneWay}" />
-
-                    <TextBlock Margin="0,8,0,0" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Tags" />
-                    <ItemsRepeater ItemsSource="{x:Bind Gallery.SelectedTags, Mode=OneWay}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            Command="{x:Bind Gallery.FavoriteSelectedCommand}"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Favorite">
+                            <FontIcon Glyph="&#xE734;" />
+                        </Button>
+                        <Button
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Command="{x:Bind Gallery.CopySelectedCommand}"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Copy">
+                            <FontIcon Glyph="&#xE8C8;" />
+                        </Button>
+                        <Button
+                            Grid.Column="2"
+                            HorizontalAlignment="Stretch"
+                            Command="{x:Bind Gallery.TagSelectedCommand}"
+                            IsEnabled="{x:Bind Shell.CanTag, Mode=OneWay}"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Tag / retag">
+                            <FontIcon Glyph="&#xE8EC;" />
+                        </Button>
+                        <Button
+                            Grid.Column="3"
+                            HorizontalAlignment="Stretch"
+                            Click="OnDelete"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Delete">
+                            <FontIcon Glyph="&#xE74D;" />
+                        </Button>
+                    </Grid>
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Common tags" />
+                    <ItemsRepeater ItemTemplate="{StaticResource TagChipTemplate}" ItemsSource="{x:Bind Gallery.CommonTags, Mode=OneWay}">
                         <ItemsRepeater.Layout>
                             <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
                         </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="x:String">
-                                <Border
-                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    CornerRadius="16"
-                                    Padding="2,2,2,2">
-                                    <StackPanel Orientation="Horizontal" Spacing="0">
-                                        <Button
-                                            MinWidth="0"
-                                            Padding="10,4,6,4"
-                                            HorizontalAlignment="Stretch"
-                                            AutomationProperties.Name="{x:Bind}"
-                                            Click="OnSearchTag"
-                                            Content="{x:Bind}"
-                                            Style="{StaticResource SubtleButtonStyle}"
-                                            Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="Search this tag" />
-                                        <Button
-                                            Width="28"
-                                            Height="28"
-                                            Padding="0"
-                                            AutomationProperties.Name="Remove tag"
-                                            Click="OnRemoveTag"
-                                            Style="{StaticResource SubtleButtonStyle}"
-                                            Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="Remove tag">
-                                            <FontIcon FontSize="10" Glyph="&#xE711;" />
-                                        </Button>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsRepeater.ItemTemplate>
                     </ItemsRepeater>
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBox
+                        <AutoSuggestBox
+                            PlaceholderText="Add tag to all (character: name)"
+                            QuerySubmitted="OnBulkTagChosen"
+                            Text="{x:Bind Gallery.BulkTagText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            TextChanged="OnAddTagTextChanged" />
+                        <Button
+                            Grid.Column="1"
+                            Command="{x:Bind Gallery.BulkAddTagCommand}"
+                            Content="Add" />
+                    </Grid>
+                </StackPanel>
+
+                <Image
+                    x:Name="PreviewImage"
+                    AutomationProperties.AutomationId="BtnOpenPhotos"
+                    HorizontalAlignment="Stretch"
+                    Stretch="Uniform"
+                    Source="{x:Bind local:PreviewPane.FullImage(Gallery.SelectedItem, Shell.IsTagging), Mode=OneWay}"
+                    Tapped="OnPreviewOpen"
+                    Visibility="{x:Bind local:PreviewPane.ImageVis(Gallery.ShowSinglePreview, Gallery.SelectedItem), Mode=OneWay}" />
+                <StackPanel
+                    Spacing="6"
+                    Visibility="{x:Bind local:PreviewPane.VideoVis(Gallery.ShowSinglePreview, Gallery.SelectedItem), Mode=OneWay}">
+                    <MediaPlayerElement
+                        x:Name="PreviewPlayer"
+                        HorizontalAlignment="Stretch"
+                        AreTransportControlsEnabled="False"
+                        AutoPlay="False"
+                        DoubleTapped="OnPreviewOpen"
+                        Stretch="Uniform" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            x:Name="VideoPlayButton"
+                            Click="OnVideoPlayPause"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Play / pause">
+                            <FontIcon x:Name="VideoPlayIcon" FontSize="14" Glyph="&#xE768;" />
+                        </Button>
+                        <Slider
+                            x:Name="VideoSlider"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Maximum="1"
+                            Minimum="0"
+                            StepFrequency="0.001"
+                            ValueChanged="OnVideoSeek" />
+                        <TextBlock
+                            x:Name="VideoTime"
+                            Grid.Column="2"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="0:00" />
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel Spacing="8" Visibility="{x:Bind local:PreviewPane.BoolVis(Gallery.ShowSinglePreview), Mode=OneWay}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            HorizontalAlignment="Stretch"
+                            AutomationProperties.AutomationId="BtnToggleFavorite"
+                            Command="{x:Bind Gallery.ToggleFavoriteCommand}"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Favorite">
+                            <FontIcon Glyph="{x:Bind Gallery.FavoriteGlyph, Mode=OneWay}" />
+                        </Button>
+                        <Button
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            AutomationProperties.AutomationId="BtnCopyImage"
+                            Command="{x:Bind Gallery.CopyImageCommand}"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Copy image">
+                            <FontIcon Glyph="&#xE8C8;" />
+                        </Button>
+                        <Button
+                            Grid.Column="2"
+                            HorizontalAlignment="Stretch"
+                            Click="OnRevealPath"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Open in folder">
+                            <FontIcon Glyph="&#xE838;" />
+                        </Button>
+                        <Button
+                            Grid.Column="3"
+                            HorizontalAlignment="Stretch"
+                            AutomationProperties.AutomationId="BtnTagCurrent"
+                            Command="{x:Bind Gallery.TagCurrentCommand}"
+                            IsEnabled="{x:Bind Shell.CanTagCurrent, Mode=OneWay}"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="Tag / retag">
+                            <FontIcon Glyph="&#xE8EC;" />
+                        </Button>
+                        <Button
+                            Grid.Column="4"
+                            HorizontalAlignment="Stretch"
+                            Style="{StaticResource ChromeIconButtonStyle}"
+                            ToolTipService.ToolTip="More">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Command="{x:Bind Gallery.CopyPathCommand}" Text="Copy path">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8C8;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Command="{x:Bind Gallery.CopyTagsCommand}" Text="Copy tags">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8A5;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="OnRename" Text="Rename">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE8AC;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="OnClearTags" Text="Clear tags">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE894;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Click="OnDelete" Text="Delete">
+                                        <MenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE74D;" />
+                                        </MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                            <FontIcon Glyph="&#xE712;" />
+                        </Button>
+                    </Grid>
+                    <TextBlock
+                        Style="{StaticResource BodyStrongTextBlockStyle}"
+                        Text="{x:Bind local:PreviewPane.NameOf(Gallery.SelectedItem), Mode=OneWay}"
+                        TextWrapping="Wrap" />
+                    <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="6">
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            Visibility="{x:Bind local:PreviewPane.HasDim(Gallery.SelectedItem), Mode=OneWay}">
+                            <FontIcon
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Glyph="&#xE7F4;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind local:PreviewPane.DimOf(Gallery.SelectedItem), Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Glyph="&#xE8A5;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind local:PreviewPane.FormatOf(Gallery.SelectedItem), Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Glyph="&#xE9D9;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind local:PreviewPane.SizeOf(Gallery.SelectedItem), Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Glyph="&#xE8EC;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind local:PreviewPane.TagsOf(Gallery.SelectedItem), Mode=OneWay}" />
+                        </StackPanel>
+                    </controls:WrapPanel>
+                    <TextBlock
+                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                        Text="{x:Bind local:PreviewPane.ErrorOf(Gallery.SelectedItem), Mode=OneWay}"
+                        TextWrapping="Wrap"
+                        Visibility="{x:Bind local:PreviewPane.ErrorVis(Gallery.SelectedItem), Mode=OneWay}" />
+
+                    <TextBlock Margin="0,8,0,0" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Tags" />
+                    <StackPanel Spacing="8">
+                        <StackPanel Visibility="{x:Bind local:PreviewPane.BoolVis(Gallery.HasPreviewRating), Mode=OneWay}">
+                            <TextBlock
+                                Margin="0,0,0,4"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="Rating" />
+                            <ItemsRepeater ItemTemplate="{StaticResource TagChipTemplate}" ItemsSource="{x:Bind Gallery.PreviewRatingTags, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </StackPanel>
+                        <StackPanel Visibility="{x:Bind local:PreviewPane.BoolVis(Gallery.HasPreviewCharacter), Mode=OneWay}">
+                            <TextBlock
+                                Margin="0,0,0,4"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="Character" />
+                            <ItemsRepeater ItemTemplate="{StaticResource TagChipTemplate}" ItemsSource="{x:Bind Gallery.PreviewCharacterTags, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </StackPanel>
+                        <StackPanel Visibility="{x:Bind local:PreviewPane.BoolVis(Gallery.HasPreviewCopyright), Mode=OneWay}">
+                            <TextBlock
+                                Margin="0,0,0,4"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="Copyright" />
+                            <ItemsRepeater ItemTemplate="{StaticResource TagChipTemplate}" ItemsSource="{x:Bind Gallery.PreviewCopyrightTags, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </StackPanel>
+                        <StackPanel Visibility="{x:Bind local:PreviewPane.BoolVis(Gallery.HasPreviewGeneral), Mode=OneWay}">
+                            <TextBlock
+                                Margin="0,0,0,4"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="General" />
+                            <ItemsRepeater ItemTemplate="{StaticResource TagChipTemplate}" ItemsSource="{x:Bind Gallery.PreviewGeneralTags, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </StackPanel>
+                    </StackPanel>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <AutoSuggestBox
                             AutomationProperties.AutomationId="TxtNewTag"
-                            PlaceholderText="Add a tag"
+                            PlaceholderText="Add a tag (character: name)"
+                            QuerySubmitted="OnAddTagChosen"
                             Text="{x:Bind Gallery.NewTagText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                            KeyDown="OnTagKeyDown" />
+                            TextChanged="OnAddTagTextChanged" />
                         <Button
                             Grid.Column="1"
                             AutomationProperties.AutomationId="BtnAddTag"
@@ -113,19 +420,38 @@
                             Content="Add" />
                     </Grid>
 
-                    <Button
-                        AutomationProperties.AutomationId="BtnOpenPhotos"
-                        Margin="0,8,0,0"
-                        HorizontalAlignment="Stretch"
-                        Command="{x:Bind Gallery.OpenInPhotosCommand}"
-                        Content="Open in Photos" />
                 </StackPanel>
 
                 <TextBlock
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     Text="Select an image to preview it."
-                    Visibility="{x:Bind local:PreviewPane.NoItem(Gallery.SelectedItem), Mode=OneWay}" />
+                    Visibility="{x:Bind local:PreviewPane.EmptyVis(Gallery.ShowSinglePreview, Gallery.IsMultiPreview), Mode=OneWay}" />
             </StackPanel>
-        </ScrollViewer>
+            </ScrollViewer>
+            <Grid
+                x:Name="PreviewBarHost"
+                Grid.Column="1"
+                Width="12"
+                Margin="4,0,0,0"
+                AutomationProperties.AutomationId="PreviewBarHost"
+                AutomationProperties.Name="Preview scrollbar"
+                Background="{ThemeResource ControlAltFillColorTertiaryBrush}"
+                CornerRadius="6"
+                PointerMoved="OnPreviewBarMoved"
+                PointerPressed="OnPreviewBarPressed"
+                PointerReleased="OnPreviewBarReleased"
+                PointerCaptureLost="OnPreviewBarReleased"
+                Visibility="Collapsed">
+                <Border
+                    x:Name="PreviewThumb"
+                    Width="8"
+                    Margin="2,0,2,0"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Background="{ThemeResource TextFillColorSecondaryBrush}"
+                    CornerRadius="4"
+                    IsHitTestVisible="False" />
+            </Grid>
+        </Grid>
     </Border>
 </UserControl>

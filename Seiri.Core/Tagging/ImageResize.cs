@@ -2,6 +2,25 @@ namespace Seiri.Core.Tagging;
 
 public static class ImageResize
 {
+    public static (byte[] Rgb, int Width, int Height) FlattenAndLimit(
+        ReadOnlySpan<byte> bgra,
+        int width,
+        int height,
+        int maxEdge = 896)
+    {
+        var rgb = FlattenBgraToRgb(bgra, width, height);
+        var edge = Math.Max(width, height);
+        if (edge <= maxEdge)
+        {
+            return (rgb, width, height);
+        }
+
+        var scale = maxEdge / (double)edge;
+        var nw = Math.Max(1, (int)Math.Round(width * scale));
+        var nh = Math.Max(1, (int)Math.Round(height * scale));
+        return (Bilinear(rgb, width, height, nw, nh), nw, nh);
+    }
+
     public static byte[] FlattenBgraToRgb(ReadOnlySpan<byte> bgra, int width, int height)
     {
         var rgb = new byte[width * height * 3];

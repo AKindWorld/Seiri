@@ -32,6 +32,9 @@ public class LibraryServiceTests
             Assert.Single(tagged);
             var untagged = await service.QueryAsync(new MediaQuery { Tagged = TaggedFilter.Untagged });
             Assert.Equal(2, untagged.Count);
+            Assert.Equal(3, await service.CountAsync(new MediaQuery()));
+            Assert.Equal(1, await service.CountAsync(new MediaQuery { Tagged = TaggedFilter.Tagged }));
+            Assert.Equal(2, await service.CountAsync(new MediaQuery { Tagged = TaggedFilter.Untagged }));
         }
         finally
         {
@@ -60,6 +63,96 @@ public class LibraryServiceTests
 
             var found = await service.QueryAsync(QueryParser.Parse("tag:solo"));
             Assert.Contains(found, m => m.FileName == "untagged.png");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task Character_query_does_not_match_general_tag()
+    {
+        var root = Fixture.CreateLibrary();
+        try
+        {
+            var home = new TempHome();
+            await using var service = new LibraryService(new JsonLibraryRegistry(home), new FileMediaScanner());
+            await service.AddAsync(root);
+            var untagged = (await service.QueryAsync(new MediaQuery { Tagged = TaggedFilter.Untagged }))
+                .First(m => m.FileName == "untagged.png");
+
+            await service.SetTagsAsync(
+                untagged,
+                [new TagRecord { Name = "1girl", Category = "general" }],
+                new AppSettings());
+
+            var asTag = await service.QueryAsync(QueryParser.Parse("tag:1girl"));
+            Assert.Contains(asTag, m => m.FileName == "untagged.png");
+            var asCharacter = await service.QueryAsync(QueryParser.Parse("character:1girl"));
+            Assert.DoesNotContain(asCharacter, m => m.FileName == "untagged.png");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task Folder_query_matches_path_segment()
+    {
+        var root = Fixture.CreateLibrary();
+        try
+        {
+            var home = new TempHome();
+            await using var service = new LibraryService(new JsonLibraryRegistry(home), new FileMediaScanner());
+            await service.AddAsync(root);
+            var inFolder = await service.QueryAsync(QueryParser.Parse("folder:characters"));
+            Assert.Contains(inFolder, m => m.FileName == "zhongli.png");
+            Assert.DoesNotContain(inFolder, m => m.FileName == "hutao.png");
+
+            var libName = Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar));
+            var wholeLib = await service.QueryAsync(QueryParser.Parse($"folder:\"{libName}\""));
+            Assert.True(wholeLib.Count >= 3);
+            Assert.Contains(wholeLib, m => m.FileName == "hutao.png");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task Auto_tag_sidecar_writes_categories()
+    {
+        var root = Fixture.CreateLibrary();
+        try
+        {
+            var home = new TempHome();
+            await using var service = new LibraryService(new JsonLibraryRegistry(home), new FileMediaScanner());
+            await service.AddAsync(root);
+            var untagged = (await service.QueryAsync(new MediaQuery { Tagged = TaggedFilter.Untagged }))
+                .First(m => m.FileName == "untagged.png");
+
+            await service.ApplyAutoTagsAsync(
+                untagged,
+                [
+                    new ScoredTag { Name = "1girl", Category = "general", Score = 0.9f, ModelId = "wd" },
+                    new ScoredTag { Name = "hutao", Category = "character", Score = 0.95f, ModelId = "wd" }
+                ],
+                "general",
+                new AppSettings());
+
+            var sidecar = File.ReadAllText(Path.Combine(root, "untagged.txt"));
+            Assert.Contains("rating: general", sidecar);
+            Assert.Contains("character:", sidecar);
+            Assert.Contains("hutao", sidecar);
+            Assert.Contains("1girl", sidecar);
+
+            var records = await service.GetTagRecordsAsync(untagged);
+            Assert.Contains(records, t => t.Name == "hutao" && t.Category == "character");
+            var asCharacter = await service.QueryAsync(QueryParser.Parse("character:hutao"));
+            Assert.Contains(asCharacter, m => m.FileName == "untagged.png");
         }
         finally
         {

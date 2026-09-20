@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Seiri.Core;
 using Seiri.ViewModels;
 using Windows.System;
 
@@ -14,9 +15,46 @@ public sealed partial class SearchBox : UserControl
 
     public GalleryViewModel Gallery => App.Shell.Gallery;
 
+    public static Visibility BoolVis(bool value) =>
+        value ? Visibility.Visible : Visibility.Collapsed;
+
+    private async void OnClearSearch(object sender, RoutedEventArgs e) =>
+        await Gallery.ClearSearchCommand.ExecuteAsync(null);
+
     public SearchBox()
     {
         InitializeComponent();
+        QueryBox.Loaded += (_, _) => HideNativeClear();
+    }
+
+    private void HideNativeClear()
+    {
+        var inner = FindDescendant<TextBox>(QueryBox);
+        if (inner is null)
+        {
+            return;
+        }
+
+        inner.Loaded += (_, _) => CollapseNamedButton(inner, "DeleteButton");
+        CollapseNamedButton(inner, "DeleteButton");
+    }
+
+    private static void CollapseNamedButton(DependencyObject root, string name)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is Button { Name: var n } button && n == name)
+            {
+                button.Visibility = Visibility.Collapsed;
+                button.Width = 0;
+                button.IsHitTestVisible = false;
+                return;
+            }
+
+            CollapseNamedButton(child, name);
+        }
     }
 
     public void FocusQuery()
@@ -65,12 +103,20 @@ public sealed partial class SearchBox : UserControl
     private async void OnTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
         sender.IsSuggestionListOpen = false;
+        HideNativeClear();
         if (_applying || args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
         {
             return;
         }
 
-        await Gallery.HandleSearchInputAsync(sender.Text);
+        try
+        {
+            await Gallery.HandleSearchInputAsync(sender.Text);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("search text", ex);
+        }
     }
 
     private async void OnGotFocus(object sender, RoutedEventArgs e)
@@ -138,6 +184,10 @@ public sealed partial class SearchBox : UserControl
         {
             Gallery.CloseSuggestions();
             await Gallery.ApplySearchAsync(sender.Text);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("search submit", ex);
         }
         finally
         {

@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Seiri.Views.TagsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:local="using:Seiri.Views"
+    xmlns:models="using:Seiri.Core.Models">
+
+    <Grid Padding="24,16,24,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="8">
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Tags" />
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="− excludes, the name searches immediately, + includes. Apply writes the search box." />
+        </StackPanel>
+
+        <AutoSuggestBox
+            Grid.Row="1"
+            Margin="0,16,0,0"
+            PlaceholderText="Filter tags"
+            QueryIcon="Find"
+            TextChanged="OnTagNeedle" />
+
+        <Grid Grid.Row="2" Margin="0,16,0,12" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="8" Visibility="{x:Bind local:TagsPage.BoolVis(Gallery.HasTagStaging), Mode=OneWay}">
+                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="Included" />
+                <ItemsRepeater ItemsSource="{x:Bind Gallery.TagIncludeStaged, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="models:TagRecord">
+                            <Button
+                                Click="OnUnstageInclude"
+                                Content="{x:Bind Name, Mode=OneWay}"
+                                Style="{StaticResource SubtleButtonStyle}"
+                                Tag="{x:Bind Mode=OneWay}" />
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="Excluded" />
+                <ItemsRepeater ItemsSource="{x:Bind Gallery.TagExcludeStaged, Mode=OneWay}">
+                    <ItemsRepeater.Layout>
+                        <controls:WrapLayout HorizontalSpacing="6" VerticalSpacing="6" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="models:TagRecord">
+                            <Button
+                                Click="OnUnstageExclude"
+                                Content="{x:Bind Name, Mode=OneWay}"
+                                Style="{StaticResource SubtleButtonStyle}"
+                                Tag="{x:Bind Mode=OneWay}" />
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </StackPanel>
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="8"
+                VerticalAlignment="Top">
+                <Button
+                    AutomationProperties.AutomationId="BtnClearTagStaging"
+                    Command="{x:Bind Gallery.ClearTagStagingCommand}"
+                    Content="Clear"
+                    IsEnabled="{x:Bind Gallery.HasTagStaging, Mode=OneWay}" />
+                <Button
+                    AutomationProperties.AutomationId="BtnApplyTags"
+                    Command="{x:Bind Gallery.ApplyTagStagingCommand}"
+                    Content="Apply"
+                    IsEnabled="{x:Bind Gallery.HasTagStaging, Mode=OneWay}"
+                    Style="{StaticResource AccentButtonStyle}" />
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer Grid.Row="3">
+            <ItemsRepeater ItemsSource="{x:Bind Gallery.TagRiver, Mode=OneWay}">
+                <ItemsRepeater.Layout>
+                    <UniformGridLayout
+                        ItemsStretch="Fill"
+                        MinColumnSpacing="8"
+                        MinItemHeight="40"
+                        MinItemWidth="220"
+                        MinRowSpacing="8" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="models:TagRecord">
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="4"
+                            Padding="2,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button
+                                    MinWidth="32"
+                                    Click="OnExclude"
+                                    Content="−"
+                                    Style="{StaticResource SubtleButtonStyle}"
+                                    Tag="{x:Bind Mode=OneWay}"
+                                    ToolTipService.ToolTip="Exclude" />
+                                <Button
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left"
+                                    Click="OnSearch"
+                                    Padding="4,6"
+                                    Style="{StaticResource SubtleButtonStyle}"
+                                    Tag="{x:Bind Mode=OneWay}"
+                                    ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}">
+                                    <TextBlock
+                                        Text="{x:Bind Display, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis" />
+                                </Button>
+                                <Button
+                                    Grid.Column="2"
+                                    MinWidth="32"
+                                    Click="OnInclude"
+                                    Content="+"
+                                    Style="{StaticResource SubtleButtonStyle}"
+                                    Tag="{x:Bind Mode=OneWay}"
+                                    ToolTipService.ToolTip="Include" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+        </ScrollViewer>
+    </Grid>
+</Page>

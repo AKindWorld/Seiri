@@ -72,6 +72,28 @@
                 </ComboBox>
             </controls:SettingsCard>
 
+            <controls:SettingsCard
+                Description="When off (recommended above ~20k files), typing only shows suggestions. Press Enter or the search icon to run the query."
+                Header="Search as you type"
+                HeaderIcon="{ui:FontIcon Glyph=&#xE11A;}">
+                <ToggleSwitch
+                    AutomationProperties.AutomationId="TglSearchAsYouType"
+                    IsOn="{x:Bind SearchAsYouType, Mode=TwoWay}"
+                    OffContent="Enter to search"
+                    OnContent="As you type" />
+            </controls:SettingsCard>
+
+            <controls:SettingsCard
+                Description="WinUI composites tiles on the GPU. Keep this on unless a display driver glitches — off uses CPU software bitmaps."
+                Header="Hardware acceleration"
+                HeaderIcon="{ui:FontIcon Glyph=&#xE7F4;}">
+                <ToggleSwitch
+                    AutomationProperties.AutomationId="TglHardwareAcceleration"
+                    IsOn="{x:Bind HardwareAcceleration, Mode=TwoWay}"
+                    OffContent="Off"
+                    OnContent="On" />
+            </controls:SettingsCard>
+
             <TextBlock Margin="0,16,0,4" Style="{StaticResource SubtitleTextBlockStyle}" Text="Models" />
             <TextBlock
                 Margin="0,0,0,12"
@@ -117,7 +139,13 @@
                                         IsEnabled="{x:Bind IsInstalled, Mode=OneWay}"
                                         IsOn="{x:Bind IsEnabled, Mode=TwoWay}"
                                         OffContent="Off"
-                                        OnContent="On" />
+                                        OnContent="On"
+                                        Visibility="{x:Bind local:SettingsPage.BoolVis(IsTagger), Mode=OneWay}" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="Used by Find similar"
+                                        Visibility="{x:Bind local:SettingsPage.NotVis(IsTagger), Mode=OneWay}" />
                                     <Button
                                         Grid.Column="1"
                                         AutomationProperties.Name="{x:Bind DownloadName}"
@@ -135,7 +163,8 @@
                                 <ComboBox
                                     Header="Threshold preset"
                                     MinWidth="200"
-                                    SelectedIndex="{x:Bind PresetIndex, Mode=TwoWay}">
+                                    SelectedIndex="{x:Bind PresetIndex, Mode=TwoWay}"
+                                    Visibility="{x:Bind local:SettingsPage.BoolVis(IsTagger), Mode=OneWay}">
                                     <ComboBoxItem Content="Balanced" />
                                     <ComboBoxItem Content="Precise" />
                                     <ComboBoxItem Content="Recall" />
@@ -145,6 +174,48 @@
                     </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
             </ItemsRepeater>
+
+            <TextBlock Margin="0,16,0,4" Style="{StaticResource SubtitleTextBlockStyle}" Text="Custom models" />
+            <TextBlock
+                Margin="0,0,0,8"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                TextWrapping="Wrap"
+                Text="Download a WD/PixAI-compatible tagger from Hugging Face (org/name), or pick a local model.onnx plus selected_tags.csv. For similar images, download the CLIP ViT-B/32 card in Models (works for photos and anime). Safeguards: repo shape, ONNX size 256 KB–8 GB, CSV must have a name column for taggers. Files land in models/custom-…/" />
+            <TextBox
+                x:Name="HfRepoBox"
+                Margin="0,0,0,8"
+                PlaceholderText="Hugging Face repo (org/name or full URL)" />
+            <ComboBox
+                x:Name="CustomPreprocessBox"
+                Margin="0,0,0,8"
+                MinWidth="240"
+                Header="Preprocess"
+                SelectedIndex="0">
+                <ComboBoxItem Content="WD v3 (NHWC 448 BGR)" Tag="WdV3" />
+                <ComboBoxItem Content="PixAI v0.9 (NCHW 448)" Tag="PixaiV09" />
+                <ComboBoxItem Content="CLIP-style encoder (similar images, 224 ImageNet)" Tag="Clip224" />
+            </ComboBox>
+            <StackPanel Margin="0,0,0,16" Orientation="Horizontal" Spacing="8">
+                <Button Click="OnDownloadCustomHf" Content="Download from Hugging Face" Style="{StaticResource AccentButtonStyle}" />
+                <Button Click="OnInstallLocalModel" Content="Install local ONNX…" />
+            </StackPanel>
+
+            <controls:SettingsCard
+                Description="Downloads Danbooru alias lists (JSON API, GitHub fallback if Danbooru returns 403). Search expands aliases. Implications are stored and never written to sidecar .txt files."
+                Header="Danbooru aliases"
+                HeaderIcon="{ui:FontIcon Glyph=&#xE8EC;}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ToggleSwitch
+                        IsOn="{x:Bind UseDanbooruAliases, Mode=TwoWay}"
+                        OffContent="Off"
+                        OnContent="On" />
+                    <Button Click="OnDownloadAliases" Content="Download lists" />
+                </StackPanel>
+            </controls:SettingsCard>
+            <TextBlock
+                Margin="0,4,0,16"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="{x:Bind ViewModel.AliasStatus, Mode=OneWay}" />
 
             <controls:SettingsCard
                 Margin="0,12,0,0"

@@ -20,7 +20,8 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         {
             DataSource = dbPath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Pooling = false
+            Pooling = false,
+            DefaultTimeout = 5
         }.ToString());
     }
 
@@ -36,6 +37,7 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         await using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             PRAGMA journal_mode = WAL;
+            PRAGMA busy_timeout = 5000;
             PRAGMA foreign_keys = ON;
             CREATE TABLE IF NOT EXISTS library_meta (
               key   TEXT PRIMARY KEY,
@@ -81,11 +83,20 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
             CREATE INDEX IF NOT EXISTS ix_media_taken ON media(taken_at);
             CREATE INDEX IF NOT EXISTS ix_media_kind ON media(kind);
             CREATE INDEX IF NOT EXISTS ix_media_rel ON media(rel_path);
+            CREATE INDEX IF NOT EXISTS ix_media_hash ON media(content_hash);
             CREATE INDEX IF NOT EXISTS ix_mt_tag ON media_tags(tag_id);
+            CREATE TABLE IF NOT EXISTS embeddings (
+              media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+              model_id TEXT NOT NULL,
+              dim INTEGER NOT NULL,
+              vector BLOB NOT NULL,
+              PRIMARY KEY (media_id, model_id)
+            );
             """;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync("media", "tag_error", "TEXT", cancellationToken).ConfigureAwait(false);
-        await SetMetaAsync("schema_version", "2", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync("media", "color_bucket", "TEXT", cancellationToken).ConfigureAwait(false);
+        await SetMetaAsync("schema_version", "4", cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -121,7 +132,15 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
                   mtime_utc = excluded.mtime_utc,
                   sidecar_rel = excluded.sidecar_rel,
                   thumb_rel = excluded.thumb_rel,
-                  is_missing = 0;
+                  is_missing = 0,
+                  content_hash = CASE
+                    WHEN excluded.byte_size != media.byte_size OR excluded.mtime_utc != media.mtime_utc THEN NULL
+                    ELSE COALESCE(excluded.content_hash, media.content_hash)
+                  END,
+                  color_bucket = CASE
+                    WHEN excluded.mtime_utc != media.mtime_utc THEN NULL
+                    ELSE media.color_bucket
+                  END;
                 """;
             cmd.Parameters.AddWithValue("$rel", item.RelPath);
             cmd.Parameters.AddWithValue("$name", item.FileName);
@@ -144,7 +163,14 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
 
             if (item.SidecarRel is not null)
             {
-                await ImportSidecarAsync(item, (SqliteTransaction)tx, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await ImportSidecarAsync(item, (SqliteTransaction)tx, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Error($"import sidecar {item.RelPath}", ex);
+                }
             }
         }
 
@@ -163,6 +189,57 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+        var where = BuildWhere(query);
+        var order = query.Sort switch
+        {
+            SortKey.Name => "file_name",
+            SortKey.Size => "byte_size",
+            SortKey.Type => "kind",
+            SortKey.TagCount => "tag_count",
+            SortKey.DateAdded => "added_at",
+            SortKey.DateModified => "mtime_utc",
+            _ => "COALESCE(taken_at, mtime_utc)"
+        };
+        var dir = query.Direction == SortDir.Asc ? "ASC" : "DESC";
+
+        await using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"SELECT * FROM media WHERE {where} ORDER BY {order} {dir}, file_name ASC";
+        var list = new List<MediaItem>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (TryReadMedia(reader) is { } item)
+            {
+                list.Add(item);
+            }
+        }
+
+        return list;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    public async Task<int> CountAsync(MediaQuery query, CancellationToken cancellationToken = default)
+    {
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = $"SELECT COUNT(*) FROM media WHERE {BuildWhere(query)}";
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            return Convert.ToInt32(result);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    private static string BuildWhere(MediaQuery query)
+    {
         var where = new List<string> { "is_missing = 0" };
         if (query.Section == RailSection.Favorites)
         {
@@ -199,39 +276,211 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
 
         foreach (var clause in query.Tags)
         {
-            var name = clause.Name.Replace("'", "''");
-            if (clause.Exclude)
-            {
-                where.Add($"id NOT IN (SELECT media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = '{name}')");
-            }
-            else
-            {
-                where.Add($"id IN (SELECT media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE t.name = '{name}')");
-            }
+            where.Add(TagClauseSql(clause));
         }
 
-        var order = query.Sort switch
+        var folders = query.Folders.Count > 0
+            ? query.Folders
+            : string.IsNullOrWhiteSpace(query.Folder) ? [] : [query.Folder];
+        if (folders.Count > 0)
         {
-            SortKey.Name => "file_name",
-            SortKey.Size => "byte_size",
-            SortKey.Type => "kind",
-            SortKey.TagCount => "tag_count",
-            SortKey.DateAdded => "added_at",
-            SortKey.DateModified => "mtime_utc",
-            _ => "COALESCE(taken_at, mtime_utc)"
+            var parts = folders.Select(f =>
+            {
+                var folder = f.Replace("'", "''").ToLowerInvariant();
+                return $"instr(lower('/' || replace(rel_path, '\\', '/') || '/'), '/{folder}/') > 0";
+            });
+            where.Add("(" + string.Join(" OR ", parts) + ")");
+        }
+
+        var dateExpr = query.DateField switch
+        {
+            DateField.Added => "date(added_at)",
+            DateField.Modified => "date(mtime_utc)",
+            _ => "date(COALESCE(taken_at, mtime_utc))"
         };
-        var dir = query.Direction == SortDir.Asc ? "ASC" : "DESC";
-
-        await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM media WHERE {string.Join(" AND ", where)} ORDER BY {order} {dir}, file_name ASC";
-        var list = new List<MediaItem>();
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        if (query.DateExact is { } exact)
         {
-            list.Add(ReadMedia(reader));
+            where.Add($"{dateExpr} = '{exact:yyyy-MM-dd}'");
         }
 
-        return list;
+        if (query.DateAfter is { } after)
+        {
+            where.Add($"{dateExpr} > '{after:yyyy-MM-dd}'");
+        }
+
+        if (query.DateBefore is { } before)
+        {
+            where.Add($"{dateExpr} < '{before:yyyy-MM-dd}'");
+        }
+
+        if (query.Orientations.Count > 0)
+        {
+            var parts = new List<string>();
+            foreach (var o in query.Orientations)
+            {
+                parts.Add(o.ToLowerInvariant() switch
+                {
+                    "landscape" => "(width IS NOT NULL AND height IS NOT NULL AND width > height)",
+                    "portrait" => "(width IS NOT NULL AND height IS NOT NULL AND height > width)",
+                    "square" => "(width IS NOT NULL AND height IS NOT NULL AND abs(width - height) <= 0.05 * max(width, height))",
+                    _ => "0"
+                });
+            }
+
+            where.Add("(" + string.Join(" OR ", parts) + ")");
+        }
+
+        if (query.Aspects.Count > 0)
+        {
+            var parts = new List<string>();
+            foreach (var a in query.Aspects)
+            {
+                var bits = a.Replace('x', ':').Split(':');
+                if (bits.Length != 2
+                    || !double.TryParse(bits[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var aw)
+                    || !double.TryParse(bits[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ah)
+                    || aw <= 0 || ah <= 0)
+                {
+                    continue;
+                }
+
+                parts.Add($"(width IS NOT NULL AND height IS NOT NULL AND abs(width * {ah.ToString(System.Globalization.CultureInfo.InvariantCulture)} - height * {aw.ToString(System.Globalization.CultureInfo.InvariantCulture)}) <= 0.08 * max(width * {ah.ToString(System.Globalization.CultureInfo.InvariantCulture)}, height * {aw.ToString(System.Globalization.CultureInfo.InvariantCulture)}))");
+            }
+
+            if (parts.Count > 0)
+            {
+                where.Add("(" + string.Join(" OR ", parts) + ")");
+            }
+        }
+
+        if (query.Colors.Count > 0)
+        {
+            var list = string.Join(',', query.Colors.Select(c => "'" + c.Replace("'", "''").ToLowerInvariant() + "'"));
+            where.Add($"lower(ifnull(color_bucket, '')) IN ({list})");
+        }
+
+        return string.Join(" AND ", where);
+    }
+
+    private static string TagClauseSql(TagClause clause)
+    {
+        var name = clause.Name.Replace("'", "''");
+        var category = string.IsNullOrWhiteSpace(clause.Category) || clause.Category == "tag"
+            ? null
+            : clause.Category.Replace("'", "''");
+
+        var extra = clause.Aliases
+            .Where(a => !string.IsNullOrWhiteSpace(a) && !a.Equals(clause.Name, StringComparison.OrdinalIgnoreCase))
+            .Select(a => a.Replace("'", "''").ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var aliasSql = extra.Count == 0
+            ? string.Empty
+            : " OR t.name IN (" + string.Join(',', extra.Select(a => "'" + a + "'")) + ")";
+
+        string match;
+        if (category == "rating")
+        {
+            match = $"(LOWER(IFNULL(rating, '')) = '{name}' OR id IN (SELECT media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE (t.name = '{name}'{aliasSql}) AND t.category = 'rating'))";
+        }
+        else if (category is not null)
+        {
+            match = $"id IN (SELECT media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE (instr(t.name, '{name}') > 0{aliasSql}) AND t.category = '{category}')";
+        }
+        else
+        {
+            match = $"id IN (SELECT media_id FROM media_tags mt JOIN tags t ON t.id = mt.tag_id WHERE instr(t.name, '{name}') > 0{aliasSql})";
+        }
+
+        return clause.Exclude ? $"NOT ({match})" : match;
+    }
+
+    public Task<LibraryInfo> GetInfoAsync(CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM media WHERE is_missing = 0";
+            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+            var last = await GetMetaAsync("last_scan_at", cancellationToken).ConfigureAwait(false);
+            DateTimeOffset? scanned = null;
+            if (last is not null && DateTimeOffset.TryParse(last, out var parsed))
+            {
+                scanned = parsed;
+            }
+
+            return new LibraryInfo
+            {
+                RootPath = RootPath,
+                GeneratedFolderName = _generatedFolderName,
+                LastScanAt = scanned,
+                FileCount = count,
+                IsOffline = !Directory.Exists(RootPath)
+            };
+        }, cancellationToken);
+
+    public Task SetFavoriteAsync(long id, bool isFavorite, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "UPDATE media SET is_favorite = $fav WHERE id = $id";
+            cmd.Parameters.AddWithValue("$fav", isFavorite ? 1 : 0);
+            cmd.Parameters.AddWithValue("$id", id);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task SetDimensionsAsync(string relPath, int width, int height, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "UPDATE media SET width = $w, height = $h WHERE rel_path = $rel";
+            cmd.Parameters.AddWithValue("$w", width);
+            cmd.Parameters.AddWithValue("$h", height);
+            cmd.Parameters.AddWithValue("$rel", relPath);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task SetColorBucketAsync(string relPath, string bucket, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "UPDATE media SET color_bucket = $c WHERE rel_path = $rel";
+            cmd.Parameters.AddWithValue("$c", bucket);
+            cmd.Parameters.AddWithValue("$rel", relPath);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task SetContentHashAsync(long id, string hash, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "UPDATE media SET content_hash = $h WHERE id = $id";
+            cmd.Parameters.AddWithValue("$h", hash);
+            cmd.Parameters.AddWithValue("$id", id);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public async Task<IReadOnlyList<MediaItem>> ListUnhashedAsync(CancellationToken cancellationToken = default)
+    {
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT * FROM media
+                WHERE is_missing = 0 AND (content_hash IS NULL OR content_hash = '')
+                ORDER BY byte_size ASC;
+                """;
+            var list = new List<MediaItem>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (TryReadMedia(reader) is { } item)
+                {
+                    list.Add(item);
+                }
+            }
+
+            return list;
         }
         finally
         {
@@ -239,39 +488,132 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         }
     }
 
-    public async Task<LibraryInfo> GetInfoAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<IReadOnlyList<MediaItem>>> ListDuplicateGroupsAsync(CancellationToken cancellationToken = default)
     {
-        await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM media WHERE is_missing = 0";
-        var count = Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
-        var last = await GetMetaAsync("last_scan_at", cancellationToken).ConfigureAwait(false);
-        return new LibraryInfo
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            RootPath = RootPath,
-            GeneratedFolderName = _generatedFolderName,
-            LastScanAt = last is null ? null : DateTimeOffset.Parse(last),
-            FileCount = count,
-            IsOffline = !Directory.Exists(RootPath)
-        };
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT * FROM media
+                WHERE is_missing = 0
+                  AND content_hash IS NOT NULL
+                  AND content_hash != ''
+                  AND content_hash IN (
+                    SELECT content_hash FROM media
+                    WHERE is_missing = 0 AND content_hash IS NOT NULL AND content_hash != ''
+                    GROUP BY content_hash HAVING COUNT(*) > 1
+                  )
+                ORDER BY content_hash, file_name;
+                """;
+            var groups = new List<IReadOnlyList<MediaItem>>();
+            List<MediaItem>? current = null;
+            string? hash = null;
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var item = TryReadMedia(reader);
+                if (item is null)
+                {
+                    continue;
+                }
+
+                if (hash is null || !string.Equals(hash, item.ContentHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (current is { Count: > 1 })
+                    {
+                        groups.Add(current);
+                    }
+
+                    current = [];
+                    hash = item.ContentHash;
+                }
+
+                current!.Add(item);
+            }
+
+            if (current is { Count: > 1 })
+            {
+                groups.Add(current);
+            }
+
+            return groups;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
     }
 
-    public async Task SetFavoriteAsync(long id, bool isFavorite, CancellationToken cancellationToken = default)
+    public Task UpsertEmbeddingAsync(long mediaId, string modelId, float[] vector, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            var bytes = new byte[vector.Length * sizeof(float)];
+            Buffer.BlockCopy(vector, 0, bytes, 0, bytes.Length);
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO embeddings (media_id, model_id, dim, vector)
+                VALUES ($id, $model, $dim, $vec)
+                ON CONFLICT(media_id, model_id) DO UPDATE SET dim = excluded.dim, vector = excluded.vector;
+                """;
+            cmd.Parameters.AddWithValue("$id", mediaId);
+            cmd.Parameters.AddWithValue("$model", modelId);
+            cmd.Parameters.AddWithValue("$dim", vector.Length);
+            cmd.Parameters.AddWithValue("$vec", bytes);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task<float[]?> GetEmbeddingAsync(long mediaId, string modelId, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT vector FROM embeddings WHERE media_id = $id AND model_id = $model";
+            cmd.Parameters.AddWithValue("$id", mediaId);
+            cmd.Parameters.AddWithValue("$model", modelId);
+            var value = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            return value is byte[] bytes ? FromBlob(bytes) : null;
+        }, cancellationToken);
+
+    public async Task<IReadOnlyList<(MediaItem Item, float[] Vector)>> ListEmbeddingsAsync(string modelId, CancellationToken cancellationToken = default)
     {
-        await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "UPDATE media SET is_favorite = $fav WHERE id = $id";
-        cmd.Parameters.AddWithValue("$fav", isFavorite ? 1 : 0);
-        cmd.Parameters.AddWithValue("$id", id);
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT m.*, e.vector FROM embeddings e
+                JOIN media m ON m.id = e.media_id
+                WHERE e.model_id = $model AND m.is_missing = 0;
+                """;
+            cmd.Parameters.AddWithValue("$model", modelId);
+            var list = new List<(MediaItem, float[])>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var vecOrd = reader.GetOrdinal("vector");
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var item = TryReadMedia(reader);
+                if (item is null || reader.IsDBNull(vecOrd))
+                {
+                    continue;
+                }
+
+                list.Add((item, FromBlob((byte[])reader.GetValue(vecOrd))));
+            }
+
+            return list;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
     }
 
-    public async Task SetDimensionsAsync(string relPath, int width, int height, CancellationToken cancellationToken = default)
+    private static float[] FromBlob(byte[] bytes)
     {
-        await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "UPDATE media SET width = $w, height = $h WHERE rel_path = $rel";
-        cmd.Parameters.AddWithValue("$w", width);
-        cmd.Parameters.AddWithValue("$h", height);
-        cmd.Parameters.AddWithValue("$rel", relPath);
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var n = bytes.Length / sizeof(float);
+        var vector = new float[n];
+        Buffer.BlockCopy(bytes, 0, vector, 0, n * sizeof(float));
+        return vector;
     }
 
     public async Task<IReadOnlyList<string>> GetTagsAsync(long mediaId, CancellationToken cancellationToken = default)
@@ -302,7 +644,57 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         }
     }
 
+    public async Task<IReadOnlyList<TagRecord>> GetTagRecordsAsync(long mediaId, CancellationToken cancellationToken = default)
+    {
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT t.name, t.category, t.use_count
+                FROM tags t
+                JOIN media_tags mt ON mt.tag_id = t.id
+                WHERE mt.media_id = $id
+                GROUP BY t.id
+                ORDER BY
+                  CASE t.category
+                    WHEN 'rating' THEN 0
+                    WHEN 'character' THEN 1
+                    WHEN 'copyright' THEN 2
+                    ELSE 3
+                  END,
+                  t.name;
+                """;
+            cmd.Parameters.AddWithValue("$id", mediaId);
+            var tags = new List<TagRecord>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                tags.Add(new TagRecord
+                {
+                    Name = reader.GetString(0),
+                    Category = reader.IsDBNull(1) ? "general" : reader.GetString(1),
+                    UseCount = reader.GetInt32(2)
+                });
+            }
+
+            return tags;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
     public async Task SetTagsAsync(long mediaId, IReadOnlyList<string> tags, CancellationToken cancellationToken = default)
+    {
+        var records = tags
+            .Select(t => new TagRecord { Name = t, Category = "general" })
+            .ToList();
+        await SetTagsAsync(mediaId, records, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SetTagsAsync(long mediaId, IReadOnlyList<TagRecord> tags, CancellationToken cancellationToken = default)
     {
         await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -318,7 +710,8 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
 
         foreach (var tag in tags)
         {
-            var tagId = await EnsureTagAsync(tag, (SqliteTransaction)tx, cancellationToken).ConfigureAwait(false);
+            var tagId = await EnsureTagAsync(tag.Name, (SqliteTransaction)tx, cancellationToken, tag.Category)
+                .ConfigureAwait(false);
             await using var ins = _connection.CreateCommand();
             ins.Transaction = (SqliteTransaction)tx;
             ins.CommandText = "INSERT OR IGNORE INTO media_tags (media_id, tag_id, source) VALUES ($m, $t, 'sidecar')";
@@ -326,6 +719,8 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
             ins.Parameters.AddWithValue("$t", tagId);
             await ins.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        var rating = tags.FirstOrDefault(t => t.Category == "rating")?.Name;
 
         string? relPath;
         await using (var relCmd = _connection.CreateCommand())
@@ -343,12 +738,14 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
                 UPDATE media SET
                   tag_count = (SELECT COUNT(DISTINCT tag_id) FROM media_tags WHERE media_id = $id),
                   tagged_at = $now,
-                  sidecar_rel = $sidecar
+                  sidecar_rel = $sidecar,
+                  rating = $rating
                 WHERE id = $id;
                 """;
             upd.Parameters.AddWithValue("$id", mediaId);
             upd.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
             upd.Parameters.AddWithValue("$sidecar", relPath is null ? DBNull.Value : SidecarFormat.SidecarRelative(relPath));
+            upd.Parameters.AddWithValue("$rating", (object?)rating ?? DBNull.Value);
             await upd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -429,6 +826,47 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         }
     }
 
+    public async Task DeleteMediaAsync(long id, CancellationToken cancellationToken = default)
+    {
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM media WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await RecalcUseCountsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    public async Task UpdatePathsAsync(long id, RenamePlan plan, CancellationToken cancellationToken = default)
+    {
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                UPDATE media
+                SET rel_path = $rel, file_name = $name, sidecar_rel = $sidecar, thumb_rel = $thumb
+                WHERE id = $id
+                """;
+            cmd.Parameters.AddWithValue("$rel", plan.RelPath);
+            cmd.Parameters.AddWithValue("$name", plan.FileName);
+            cmd.Parameters.AddWithValue("$sidecar", plan.SidecarRel);
+            cmd.Parameters.AddWithValue("$thumb", plan.ThumbRel);
+            cmd.Parameters.AddWithValue("$id", id);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
     public async Task SetTagErrorAsync(long mediaId, string? error, CancellationToken cancellationToken = default)
     {
         await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -446,63 +884,145 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         }
     }
 
-    public async Task<IReadOnlyList<TagRecord>> SuggestTagsAsync(string? prefix, int limit = 20, CancellationToken cancellationToken = default)
-    {
-        await using var cmd = _connection.CreateCommand();
-        if (string.IsNullOrWhiteSpace(prefix))
-        {
-            cmd.CommandText = "SELECT name, category, use_count FROM tags ORDER BY use_count DESC, name LIMIT $n";
-        }
-        else
-        {
-            cmd.CommandText = "SELECT name, category, use_count FROM tags WHERE name LIKE $p ORDER BY use_count DESC, name LIMIT $n";
-            cmd.Parameters.AddWithValue("$p", prefix.Replace('_', ' ').ToLowerInvariant() + "%");
-        }
-
-        cmd.Parameters.AddWithValue("$n", limit);
-        var list = new List<TagRecord>();
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            list.Add(new TagRecord
-            {
-                Name = reader.GetString(0),
-                Category = reader.GetString(1),
-                UseCount = reader.GetInt32(2)
-            });
-        }
-
-        return list;
-    }
-
-    public async Task MarkMissingExceptAsync(IReadOnlyCollection<string> presentRelPaths, CancellationToken cancellationToken = default)
-    {
-        await using var tx = await _connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (var all = _connection.CreateCommand())
-        {
-            all.Transaction = (SqliteTransaction)tx;
-            all.CommandText = "UPDATE media SET is_missing = 1";
-            await all.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        foreach (var rel in presentRelPaths)
+    public Task<IReadOnlyList<TagRecord>> SuggestTagsAsync(string? prefix, int limit = 20, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
         {
             await using var cmd = _connection.CreateCommand();
-            cmd.Transaction = (SqliteTransaction)tx;
-            cmd.CommandText = "UPDATE media SET is_missing = 0 WHERE rel_path = $rel";
-            cmd.Parameters.AddWithValue("$rel", rel);
+            if (string.IsNullOrWhiteSpace(prefix))
+            {
+                cmd.CommandText = "SELECT name, category, use_count FROM tags ORDER BY use_count DESC, name LIMIT $n";
+            }
+            else
+            {
+                var needle = prefix.Replace('_', ' ').ToLowerInvariant();
+                cmd.CommandText = """
+                    SELECT name, category, use_count FROM tags
+                    WHERE instr(name, $p) > 0
+                    ORDER BY (name = $p) DESC, (instr(name, $p) = 1) DESC, use_count DESC, name
+                    LIMIT $n
+                    """;
+                cmd.Parameters.AddWithValue("$p", needle);
+            }
+
+            cmd.Parameters.AddWithValue("$n", limit);
+            var list = new List<TagRecord>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                list.Add(new TagRecord
+                {
+                    Name = reader.GetString(0),
+                    Category = reader.GetString(1),
+                    UseCount = reader.GetInt32(2)
+                });
+            }
+
+            return (IReadOnlyList<TagRecord>)list;
+        }, cancellationToken);
+
+    public Task<IReadOnlyList<TagRecord>> ListTagsAsync(int limit = 5000, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT name, category, use_count FROM tags
+                WHERE use_count > 0
+                ORDER BY use_count DESC, name
+                LIMIT $n;
+                """;
+            cmd.Parameters.AddWithValue("$n", Math.Clamp(limit, 1, 20_000));
+            var list = new List<TagRecord>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                list.Add(new TagRecord
+                {
+                    Name = reader.GetString(0),
+                    Category = reader.GetString(1),
+                    UseCount = reader.GetInt32(2)
+                });
+            }
+
+            return (IReadOnlyList<TagRecord>)list;
+        }, cancellationToken);
+
+    public Task<IReadOnlyList<string>> ListExtensionsAsync(CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT DISTINCT ext FROM media WHERE is_missing = 0 ORDER BY ext";
+            var list = new List<string>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var ext = reader.GetString(0);
+                if (!string.IsNullOrWhiteSpace(ext))
+                {
+                    list.Add(ext);
+                }
+            }
+
+            return (IReadOnlyList<string>)list;
+        }, cancellationToken);
+
+    public Task<IReadOnlyList<string>> ListFolderNamesAsync(CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT DISTINCT substr(
+                  replace(rel_path, '\', '/'),
+                  1,
+                  instr(replace(rel_path, '\', '/'), '/') - 1)
+                FROM media
+                WHERE is_missing = 0 AND instr(replace(rel_path, '\', '/'), '/') > 0
+                ORDER BY 1 COLLATE NOCASE
+                LIMIT 200;
+                """;
+            var list = new List<string>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var name = reader.GetString(0);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    list.Add(name);
+                }
+            }
+
+            return (IReadOnlyList<string>)list;
+        }, cancellationToken);
+
+    public Task MarkMissingExceptAsync(IReadOnlyCollection<string> presentRelPaths, CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var tx = await _connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (var all = _connection.CreateCommand())
+            {
+                all.Transaction = (SqliteTransaction)tx;
+                all.CommandText = "UPDATE media SET is_missing = 1";
+                await all.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            foreach (var rel in presentRelPaths)
+            {
+                await using var cmd = _connection.CreateCommand();
+                cmd.Transaction = (SqliteTransaction)tx;
+                cmd.CommandText = "UPDATE media SET is_missing = 0 WHERE rel_path = $rel";
+                cmd.Parameters.AddWithValue("$rel", rel);
+                await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task CheckpointAsync(CancellationToken cancellationToken = default) =>
+        WithLockAsync(async () =>
+        {
+            await using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task CheckpointAsync(CancellationToken cancellationToken = default)
-    {
-        await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
+        }, cancellationToken);
 
     public async ValueTask DisposeAsync()
     {
@@ -510,12 +1030,58 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         {
             await CheckpointAsync().ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
-            // Best-effort so a USB copy still gets a single seiri.db.
+            AppLog.Error($"checkpoint {RootPath}", ex);
         }
 
-        await _connection.DisposeAsync().ConfigureAwait(false);
+        try
+        {
+            await _connection.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"dispose index {RootPath}", ex);
+        }
+    }
+
+    private async Task WithLockAsync(Func<Task> work, CancellationToken cancellationToken)
+    {
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await work().ConfigureAwait(false);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    private async Task<T> WithLockAsync<T>(Func<Task<T>> work, CancellationToken cancellationToken)
+    {
+        await _mutex.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await work().ConfigureAwait(false);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    private MediaItem? TryReadMedia(SqliteDataReader reader)
+    {
+        try
+        {
+            return ReadMedia(reader);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"read media {RootPath}", ex);
+            return null;
+        }
     }
 
     private MediaItem ReadMedia(SqliteDataReader reader)
@@ -533,20 +1099,34 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
             Height = reader.IsDBNull(reader.GetOrdinal("height")) ? null : reader.GetInt32(reader.GetOrdinal("height")),
             DurationMs = reader.IsDBNull(reader.GetOrdinal("duration_ms")) ? null : reader.GetInt64(reader.GetOrdinal("duration_ms")),
             ContentHash = reader.IsDBNull(reader.GetOrdinal("content_hash")) ? null : reader.GetString(reader.GetOrdinal("content_hash")),
-            MtimeUtc = DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("mtime_utc"))),
-            TakenAt = reader.IsDBNull(reader.GetOrdinal("taken_at")) ? null : DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("taken_at"))),
-            AddedAt = DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("added_at"))),
+            MtimeUtc = ReadTime(reader, "mtime_utc") ?? DateTimeOffset.UtcNow,
+            TakenAt = ReadTime(reader, "taken_at"),
+            AddedAt = ReadTime(reader, "added_at") ?? DateTimeOffset.UtcNow,
             IsFavorite = reader.GetInt32(reader.GetOrdinal("is_favorite")) != 0,
             IsMissing = reader.GetInt32(reader.GetOrdinal("is_missing")) != 0,
             SidecarRel = reader.IsDBNull(reader.GetOrdinal("sidecar_rel")) ? null : reader.GetString(reader.GetOrdinal("sidecar_rel")),
             TagCount = reader.GetInt32(reader.GetOrdinal("tag_count")),
-            TaggedAt = reader.IsDBNull(reader.GetOrdinal("tagged_at")) ? null : DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("tagged_at"))),
+            TaggedAt = ReadTime(reader, "tagged_at"),
             ThumbRel = reader.IsDBNull(reader.GetOrdinal("thumb_rel")) ? null : reader.GetString(reader.GetOrdinal("thumb_rel")),
             Rating = reader.IsDBNull(reader.GetOrdinal("rating")) ? null : reader.GetString(reader.GetOrdinal("rating")),
             TagError = HasColumn(reader, "tag_error") && !reader.IsDBNull(reader.GetOrdinal("tag_error"))
                 ? reader.GetString(reader.GetOrdinal("tag_error"))
+                : null,
+            ColorBucket = HasColumn(reader, "color_bucket") && !reader.IsDBNull(reader.GetOrdinal("color_bucket"))
+                ? reader.GetString(reader.GetOrdinal("color_bucket"))
                 : null
         };
+    }
+
+    private static DateTimeOffset? ReadTime(SqliteDataReader reader, string column)
+    {
+        var ord = reader.GetOrdinal(column);
+        if (reader.IsDBNull(ord))
+        {
+            return null;
+        }
+
+        return DateTimeOffset.TryParse(reader.GetString(ord), out var value) ? value : null;
     }
 
     private async Task ImportSidecarAsync(MediaItem item, SqliteTransaction tx, CancellationToken cancellationToken)
@@ -557,8 +1137,17 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
             return;
         }
 
-        var text = await File.ReadAllTextAsync(full, cancellationToken).ConfigureAwait(false);
-        var tags = ParseTags(text);
+        string text;
+        try
+        {
+            text = await File.ReadAllTextAsync(full, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"sidecar {full}", ex);
+            return;
+        }
+        var tags = SidecarFormat.ParseRecords(text);
         if (tags.Count == 0)
         {
             return;
@@ -583,7 +1172,7 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
 
         foreach (var tag in tags)
         {
-            var tagId = await EnsureTagAsync(tag, tx, cancellationToken).ConfigureAwait(false);
+            var tagId = await EnsureTagAsync(tag.Name, tx, cancellationToken, tag.Category).ConfigureAwait(false);
             await using var ins = _connection.CreateCommand();
             ins.Transaction = tx;
             ins.CommandText = """
@@ -595,16 +1184,19 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
             await ins.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        var rating = tags.FirstOrDefault(t => t.Category == "rating")?.Name;
         await using var count = _connection.CreateCommand();
         count.Transaction = tx;
         count.CommandText = """
             UPDATE media SET
               tag_count = (SELECT COUNT(DISTINCT tag_id) FROM media_tags WHERE media_id = $id),
-              tagged_at = $now
+              tagged_at = $now,
+              rating = COALESCE($rating, rating)
             WHERE id = $id;
             """;
         count.Parameters.AddWithValue("$id", mediaId);
         count.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+        count.Parameters.AddWithValue("$rating", (object?)rating ?? DBNull.Value);
         await count.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -616,10 +1208,25 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
             ins.Transaction = tx;
         }
 
+        var cat = string.IsNullOrWhiteSpace(category) ? "general" : category.ToLowerInvariant();
         ins.CommandText = "INSERT OR IGNORE INTO tags (name, category) VALUES ($n, $c)";
         ins.Parameters.AddWithValue("$n", name);
-        ins.Parameters.AddWithValue("$c", string.IsNullOrWhiteSpace(category) ? "general" : category);
+        ins.Parameters.AddWithValue("$c", cat);
         await ins.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        if (cat != "general")
+        {
+            await using var promote = _connection.CreateCommand();
+            if (tx is not null)
+            {
+                promote.Transaction = tx;
+            }
+
+            promote.CommandText = "UPDATE tags SET category = $c WHERE name = $n AND category = 'general'";
+            promote.Parameters.AddWithValue("$c", cat);
+            promote.Parameters.AddWithValue("$n", name);
+            await promote.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         await using var sel = _connection.CreateCommand();
         if (tx is not null)
@@ -630,6 +1237,11 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         sel.CommandText = "SELECT id FROM tags WHERE name = $n";
         sel.Parameters.AddWithValue("$n", name);
         var id = await sel.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (id is null or DBNull)
+        {
+            throw new InvalidOperationException($"Tag '{name}' was not inserted.");
+        }
+
         return Convert.ToInt64(id);
     }
 
@@ -638,22 +1250,6 @@ public sealed class SqliteLibraryIndex : ILibraryIndex
         await using var cmd = _connection.CreateCommand();
         cmd.CommandText = "UPDATE tags SET use_count = (SELECT COUNT(*) FROM media_tags WHERE tag_id = tags.id)";
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static List<string> ParseTags(string text)
-    {
-        var parts = text.Replace('\n', ',').Replace('\r', ',').Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var tags = new List<string>();
-        foreach (var part in parts)
-        {
-            var name = part.Replace('_', ' ').Trim().ToLowerInvariant();
-            if (name.Length > 0 && !tags.Contains(name))
-            {
-                tags.Add(name);
-            }
-        }
-
-        return tags;
     }
 
     private async Task SetMetaAsync(string key, string value, CancellationToken cancellationToken)

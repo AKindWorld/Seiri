@@ -98,6 +98,9 @@ public sealed class ModelTag
     {
         9 => "rating",
         4 => "character",
+        3 => "copyright",
+        1 => "artist",
+        5 => "meta",
         0 => "general",
         _ => "other"
     };
@@ -171,6 +174,24 @@ public sealed class TaggingProgress
     public int Skipped { get; init; }
     public string Phase { get; init; } = "tagging";
     public double Percent => Total > 0 ? 100.0 * Done / Total : 0;
+
+    public bool ShouldPublishUi(ref long lastTickMs, int minIntervalMs = 250)
+    {
+        if (Phase is "done" or "loading" || Done >= Total)
+        {
+            lastTickMs = Environment.TickCount64;
+            return true;
+        }
+
+        var now = Environment.TickCount64;
+        if (now - lastTickMs < minIntervalMs)
+        {
+            return false;
+        }
+
+        lastTickMs = now;
+        return true;
+    }
 }
 
 public sealed class TaggingRunResult
